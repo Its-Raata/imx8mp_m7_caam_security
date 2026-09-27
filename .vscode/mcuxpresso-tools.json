@@ -1,0 +1,15 @@
+{
+  "version": "25.3",
+  "toolchainPath": "/usr/local/mcuxpressoide-25.6.136/ide/tools",
+  "linkedProjects": [],
+  "trustZoneType": "none",
+  "multicoreType": "none",
+  "projectType": "sdk-freestanding",
+  "sdk": {
+    "version": "2.16.000",
+    "path": "",
+    "boardId": "evkmimx8mp",
+    "deviceId": "MIMX8ML8xxxLZ",
+    "coreId": "cm7_MIMX8ML8xxxLZ"
+  }
+}
