@@ -1,4 +1,6 @@
 /*
+ * Copyright (c) 2026 Raata <its.raata@gmail.com>
+ *
  * Compact software AES-128-CTR/GCM + SHA-256 + HMAC-SHA256 for M7.
  * Replace with CAAM (fsl_caam) once a job ring is reserved for M7.
  */

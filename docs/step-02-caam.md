@@ -1,5 +1,6 @@
 # Step 02 — CAAM crypto engine (plan)
 
+**Author:** Raata \<its.raata@gmail.com\>  
 **Status:** Next implementation  
 **Tag:** `step-02` (when code lands)  
 **Goal:** Same RPMsg protocol and Linux client; crypto and blobs backed by **CAAM**.

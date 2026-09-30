@@ -1,5 +1,7 @@
 # Changelog
 
+**Author:** Raata <its.raata@gmail.com>
+
 ## [Unreleased]
 
 ### Planned

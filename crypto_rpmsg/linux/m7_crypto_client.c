@@ -1,4 +1,8 @@
-/* Userspace client for the M7 crypto service on /dev/ttyRPMSG30. */
+/*
+ * Copyright (c) 2026 Raata <its.raata@gmail.com>
+ *
+ * Userspace client for the M7 crypto service on /dev/ttyRPMSG30.
+ */
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>

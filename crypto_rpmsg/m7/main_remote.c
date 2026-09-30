@@ -1,11 +1,7 @@
 /*
- * M7 crypto RPMsg remote — based on NXP rpmsg_lite_pingpong_rtos_linux remote.
+ * Copyright (c) 2026 Raata <its.raata@gmail.com>
  *
- * Import the EVK pingpong RTOS Linux remote example in MCUXpresso, then replace
- * that project's main.c with this file and add:
- *   crypto_service.c, sw_crypto.c, and the headers in this folder.
- *
- * Channel: rpmsg-virtual-tty-channel-1  ->  Linux: modprobe imx_rpmsg_tty  ->  /dev/ttyRPMSG30
+ * M7 crypto RPMsg remote (channel rpmsg-virtual-tty-channel-1 -> /dev/ttyRPMSG30).
  */
 #include <stdio.h>
 #include <stdlib.h>

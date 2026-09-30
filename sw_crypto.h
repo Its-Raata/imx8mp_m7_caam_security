@@ -1,3 +1,6 @@
+/*
+ * Copyright (c) 2026 Raata <its.raata@gmail.com>
+ */
 #ifndef SW_CRYPTO_H_
 #define SW_CRYPTO_H_
 

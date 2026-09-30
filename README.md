@@ -1,6 +1,6 @@
 # i.MX8MP M7 crypto service (RPMsg)
 
-**Author:** Raata ([Its-Raata](https://github.com/Its-Raata))  
+**Author:** Raata \<its.raata@gmail.com\> ([Its-Raata](https://github.com/Its-Raata))  
 **Board:** NXP i.MX8MP EVK · **Remote core:** Cortex-M7 (FreeRTOS + RPMsg-Lite)  
 **Host:** Linux Cortex-A53 · **Channel:** `/dev/ttyRPMSG30`
 

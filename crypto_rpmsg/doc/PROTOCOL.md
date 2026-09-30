@@ -1,5 +1,7 @@
 # M7CR wire protocol
 
+**Author:** Raata <its.raata@gmail.com>
+
 Little-endian. One request and one response per message (or ttyRPMSG frame).
 
 ## Header (16 bytes)

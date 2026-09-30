@@ -1,3 +1,6 @@
+/*
+ * Copyright (c) 2026 Raata <its.raata@gmail.com>
+ */
 #ifndef CRYPTO_SERVICE_H_
 #define CRYPTO_SERVICE_H_
 

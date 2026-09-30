@@ -1,4 +1,8 @@
-/* M7 crypto service. Channel rpmsg-virtual-tty-channel-1 -> /dev/ttyRPMSG30. */
+/*
+ * Copyright (c) 2026 Raata <its.raata@gmail.com>
+ *
+ * M7 crypto service. Channel rpmsg-virtual-tty-channel-1 -> /dev/ttyRPMSG30.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

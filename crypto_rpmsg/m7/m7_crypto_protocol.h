@@ -1,4 +1,6 @@
 /*
+ * Copyright (c) 2026 Raata <its.raata@gmail.com>
+ *
  * Shared Linux <-> M7 crypto RPMsg protocol.
  * Little-endian. One request/response per RPMsg (or ttyRPMSG) message.
  *

@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Raata <its.raata@gmail.com>
+ *
+ * Command handlers and soft-blob key wrap for the M7 crypto RPMsg service.
+ */
 #include "crypto_service.h"
 #include "sw_crypto.h"
 #include <string.h>

@@ -1,5 +1,6 @@
 # Step 01 — Software crypto over RPMsg
 
+**Author:** Raata \<its.raata@gmail.com\>  
 **Status:** Done  
 **Tag:** `step-01`  
 **Goal:** Prove Linux ↔ M7 crypto path end-to-end before touching CAAM.

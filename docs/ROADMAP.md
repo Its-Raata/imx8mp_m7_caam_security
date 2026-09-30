@@ -1,5 +1,7 @@
 # Roadmap
 
+**Author:** Raata \<its.raata@gmail.com\>
+
 This repository is organized as **numbered steps**. Each step is a resume-visible
 milestone: what works, what files matter, and what comes next.
 
