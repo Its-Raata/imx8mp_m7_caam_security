@@ -8,7 +8,7 @@ milestone: what works, what files matter, and what comes next.
 | Step | Title | Git tag (when frozen) | Status |
 |------|--------|----------------------|--------|
 | 01 | Software crypto + RPMsg + Linux client | `step-01` | Done |
-| 02 | CAAM engine + black blobs | `step-02` | Design / next |
+| 02 | CAAM engine + black blobs | `step-02` | In progress (`step/02-caam`) |
 | 03 | Hardening & demos | `step-03` | Planned |
 
 ## Design rule (important)
