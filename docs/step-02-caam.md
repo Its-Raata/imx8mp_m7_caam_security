@@ -1,108 +1,91 @@
-# Step 02 — CAAM crypto engine (plan)
+# Step 02 — CAAM crypto engine
 
 **Author:** Raata \<its.raata@gmail.com\>  
-**Status:** Next implementation  
-**Tag:** `step-02` (when code lands)  
-**Goal:** Same RPMsg protocol and Linux client; crypto and blobs backed by **CAAM**.
+**Status:** In progress (API + build switch landed; hardware bring-up next)  
+**Branch:** `step/02-caam`  
+**Tag:** `step-02` (when silicon path works)
 
-## Why this step matters
+## Goal
 
-Step 1 proved the architecture. Step 2 shows SoC security integration:
+Same RPMsg protocol and Linux client as Step 01. AES-GCM / HMAC (and later
+black blobs) run on **CAAM** instead of `sw_crypto.c`.
 
-- Hardware AES-GCM / HMAC instead of pure software
-- **Black blobs** (or equivalent CAAM blob APIs) instead of a hardcoded wrap key
-- Clear story about **who owns CAAM job rings** (M7 vs Linux)
+## What landed in this branch so far
 
-Interview value: multicore + crypto accelerator + stable ABI.
+| Item | Status |
+|------|--------|
+| `caam_crypto.c` / `.h` — GCM + HMAC API matching `sw_*` | Done (scaffold) |
+| `caam_blob.c` / `.h` — black blob API | Done (scaffold) |
+| `crypto_service.c` — `M7_USE_CAAM` engine switch | Done |
+| CMake flags `M7_USE_CAAM` / `M7_CAAM_HW` (default **0**) | Done |
+| Default build = Step 01 behavior (software crypto) | Done |
+| Link `fsl_caam` + `CAAM_Type` for MIMX8ML8 | **Next** |
+| Reserve Linux job ring for M7 | **Next** (see below) |
+| EVK parity test with client | After HW |
 
-## Non-negotiables
+### Build flags
 
-1. **No protocol break** — `m7_crypto_protocol.h` and `m7_crypto_client` stay valid.
-2. **One engine switch** — `crypto_service.c` calls CAAM wrappers instead of `sw_*`
-   (keep `sw_crypto.c` as fallback behind a compile flag if useful).
-3. **Document ownership** — Linux must not use the same job ring M7 uses.
-
-## Approach (recommended order)
-
-### 1. Platform prep
-
-- Confirm CAAM is accessible from M7 in SDK (`fsl_caam` / job ring APIs).
-- Device tree / SCFW / RDC: reserve **at least one job ring** for M7; stop Linux
-  from claiming it (`/dev/crypto` / `caam` driver binding).
-- Clocks and RDC domain already partly handled in Step 1 bring-up; extend for CAAM.
-
-### 2. Thin CAAM adapters (new files)
-
-Suggested names (to keep Step 1 readable in git history):
-
-```text
-caam_crypto.c / caam_crypto.h   # AES-GCM encrypt/decrypt, HMAC
-caam_blob.c   / caam_blob.h     # black/red blob wrap & unwrap
+```cmake
+# armgcc/config.cmake (or -DM7_USE_CAAM=1)
+M7_USE_CAAM=0   # 1 = call caam_* for GCM/HMAC
+M7_CAAM_HW=0    # 1 = compile real fsl_caam calls (needs device CAAM_Type)
 ```
 
-Map 1:1 to today’s calls:
+With both at 0, the firmware behaves like Step 01.  
+With `M7_USE_CAAM=1` and `M7_CAAM_HW=0`, GCM/HMAC return crypto errors until HW is linked (wiring check).
 
-| Step 1 | Step 2 |
-|--------|--------|
-| `sw_aes128_gcm_encrypt` | `caam_aes128_gcm_encrypt` |
-| `sw_aes128_gcm_decrypt` | `caam_aes128_gcm_decrypt` |
-| `sw_hmac_sha256` | `caam_hmac_sha256` |
-| `wrap_key_blob` / soft CBC | `caam_black_blob_wrap` |
-| `unwrap_key_blob` | `caam_black_blob_unwrap` |
+## Platform finding (important)
 
-### 3. Wire into `crypto_service.c`
+MCUXpresso **MIMX8ML8** headers expose CAAM IRQs and RDC IDs, but **do not**
+define `CAAM_Type` / `CAAM_BASE` the way RT1170 does. The NXP `fsl_caam` driver
+expects those symbols.
 
-- `#ifdef USE_CAAM` (or CMake option) select CAAM vs software.
-- Keep soft-blob **on-wire layout** only if still useful; prefer CAAM blob bytes
-  as the blob payload Linux stores (document length/format in PROTOCOL.md).
+So Step 02 has two layers:
 
-### 4. Prove parity
+1. **Software architecture** (this commit) — stable switch, same protocol.  
+2. **Silicon bring-up** — add `caam_imx8mp_device.h` (base `0x30900000` per RM),
+   clock/RDC access from M7, link `fsl_caam.c`, set `M7_CAAM_HW=1`.
 
-Same client commands as Step 1:
+## Linux job-ring ownership
 
-```bash
-./m7_crypto_client $DEV ping
-./m7_crypto_client $DEV store-aes ...
-./m7_crypto_client $DEV encrypt-gcm ...
-./m7_crypto_client $DEV decrypt-gcm ...
-```
+Linux `caam`/`jr` nodes normally claim the job rings. M7 must use a ring Linux
+does **not** bind.
 
-Plus: export blob on M7, reboot M7 path, load blob, decrypt again.
+Typical approach on EVK:
 
-### 5. Freeze milestone
+1. In the RPMsg DT overlay / `imx8mp-evk-rpmsg.dts`, disable or remove one `jr@…`
+   node reserved for M7 (often JR2 or JR3 — confirm against your kernel DT).
+2. Confirm with `cat /proc/interrupts | grep jr` that the reserved ring stays idle
+   under Linux crypto load.
+3. Point M7 `caam_handle_t.jobRing` at that ring (`kCAAM_JobRing2` / `3`).
 
-- Update this doc status → Done  
-- Tag `step-02`  
-- GitHub Release notes: “CAAM engine, protocol unchanged”
+Document the chosen ring here when fixed:
 
-## Risks (call them out publicly)
+| Ring | Owner |
+|------|--------|
+| JR0 | Linux (default) |
+| JR1 | Linux (default) |
+| JR? | **M7 (TBD)** |
 
-| Risk | Mitigation |
-|------|------------|
-| Linux and M7 fight over CAAM | Dedicated JR + DT / driver disable |
-| Blob format change | Version field in blob header; document in PROTOCOL.md |
-| Debug harder than software | Keep `USE_CAAM=0` software path for bring-up |
+## Soft blob vs black blob
 
-## Out of scope for Step 2
+Step 01 soft blobs remain the on-wire format until `M7_CAAM_HW` black-blob wrap
+is validated. Then update [PROTOCOL.md](../crypto_rpmsg/doc/PROTOCOL.md) with
+the CAAM blob layout (`keymod || caam_blob`).
 
-- Full key provisioning HSM story
-- TLS stack
-- Large multipart messages beyond RPMsg MTU
+## Checklist
 
-Those belong in Step 3+.
+- [x] Branch `step/02-caam`
+- [x] Adapter files + `M7_USE_CAAM` switch
+- [ ] `caam_imx8mp_device.h` + link `fsl_caam.c`
+- [ ] CAAM init self-test on EVK
+- [ ] GCM / HMAC parity vs Step 01 vectors
+- [ ] Black blob export/load across M7 restart
+- [ ] Linux JR reserved and documented
+- [ ] Tag `step-02` + GitHub Release
 
-## Implementation kickoff checklist
+## Non-negotiables (unchanged)
 
-When coding starts, open a branch `step/02-caam` and tick:
-
-- [ ] CAAM init from M7 succeeds (one self-test encrypt)
-- [ ] GCM encrypt/decrypt via CAAM matches known answer (or matches Step 1 vector)
-- [ ] HMAC via CAAM
-- [ ] Black blob export/import survives M7 restart (with Linux-held blob file)
-- [ ] Client unchanged except docs
-- [ ] README status table: Step 2 Done
-
-## Related reading
-
-- NXP CAAM driver headers in MCUXpresso SDK (`fsl_caam.h`)
-- i.MX8MP security / job ring assignment in Linux DT and reference manual
+1. Do not break `m7_crypto_protocol.h` / `m7_crypto_client`.  
+2. Keep software path buildable (`M7_USE_CAAM=0`).  
+3. Document JR ownership before claiming Step 02 Done.

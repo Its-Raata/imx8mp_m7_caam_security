@@ -4,9 +4,14 @@
 
 ## [Unreleased]
 
+### Added (Step 02 — in progress)
+
+- `caam_crypto.*` / `caam_blob.*` adapters and `M7_USE_CAAM` / `M7_CAAM_HW` build flags
+- Default build remains Step 01 software crypto (`M7_USE_CAAM=0`)
+
 ### Planned
 
-- Step 02: CAAM AES-GCM / HMAC and black blobs ([docs/step-02-caam.md](docs/step-02-caam.md))
+- Link `fsl_caam` for MIMX8ML8, reserve Linux job ring, black-blob on-wire format
 
 ## [step-01] — 2026-09-27
 

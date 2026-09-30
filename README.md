@@ -11,7 +11,7 @@ roadmap step can swap the crypto engine without rewriting the userspace client.
 | Status | Milestone |
 |--------|-----------|
 | **Done** | [Step 1 — Software crypto + soft blobs](docs/step-01-software-crypto.md) |
-| **Next** | [Step 2 — CAAM AES-GCM / HMAC + black blobs](docs/step-02-caam.md) |
+| **In progress** | [Step 2 — CAAM AES-GCM / HMAC + black blobs](docs/step-02-caam.md) (`step/02-caam`) |
 | Planned | Step 3 — Hardening (IV policy, key lifecycle, demo scripts) |
 
 Full plan: [docs/ROADMAP.md](docs/ROADMAP.md) · Protocol: [crypto_rpmsg/doc/PROTOCOL.md](crypto_rpmsg/doc/PROTOCOL.md)

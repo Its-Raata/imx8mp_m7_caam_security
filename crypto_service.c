@@ -2,12 +2,25 @@
  * Copyright (c) 2026 Raata <its.raata@gmail.com>
  *
  * Command handlers and soft-blob key wrap for the M7 crypto RPMsg service.
+ *
+ * Crypto engine: software (Step 01) or CAAM (Step 02) via M7_USE_CAAM.
  */
 #include "crypto_service.h"
 #include "sw_crypto.h"
 #include <string.h>
 
-/* Device wrap key for soft blobs — REPLACE with CAAM black blob later. */
+#if defined(M7_USE_CAAM) && (M7_USE_CAAM)
+#include "caam_crypto.h"
+#define ENG_AES_GCM_ENCRYPT caam_aes128_gcm_encrypt
+#define ENG_AES_GCM_DECRYPT caam_aes128_gcm_decrypt
+#define ENG_HMAC_SHA256     caam_hmac_sha256
+#else
+#define ENG_AES_GCM_ENCRYPT sw_aes128_gcm_encrypt
+#define ENG_AES_GCM_DECRYPT sw_aes128_gcm_decrypt
+#define ENG_HMAC_SHA256     sw_hmac_sha256
+#endif
+
+/* Soft-blob wrap key (Step 01). Step 02 HW black blobs use caam_blob when M7_CAAM_HW. */
 static const uint8_t s_wrap_key[16] = {
     0x4d, 0x37, 0x43, 0x52, 0x53, 0x4f, 0x46, 0x54, 0x42, 0x4c, 0x4f, 0x42, 0x4b, 0x45, 0x59, 0x31};
 
@@ -28,6 +41,9 @@ void crypto_service_init(void)
     s_aes_valid    = 0;
     s_hmac_valid   = 0;
     s_hmac_key_len = 0;
+#if defined(M7_USE_CAAM) && (M7_USE_CAAM)
+    (void)caam_crypto_init();
+#endif
 }
 
 static uint16_t rd_u16(const uint8_t *p)
@@ -251,7 +267,7 @@ uint32_t crypto_service_handle(const uint8_t *req, uint32_t req_len, uint8_t *rs
             }
             aad = payload + M7CR_GCM_IV_LEN + 4u;
             pt  = aad + aad_len;
-            if (sw_aes128_gcm_encrypt(s_aes_key, iv, M7CR_GCM_IV_LEN, aad, aad_len, pt, pt_len, outbuf,
+            if (ENG_AES_GCM_ENCRYPT(s_aes_key, iv, M7CR_GCM_IV_LEN, aad, aad_len, pt, pt_len, outbuf,
                                       outbuf + pt_len) != 0)
             {
                 return make_rsp(rsp, rsp_cap, req_id, M7CR_ERR_CRYPTO, NULL, 0);
@@ -288,7 +304,7 @@ uint32_t crypto_service_handle(const uint8_t *req, uint32_t req_len, uint8_t *rs
             aad = payload + M7CR_GCM_IV_LEN + 4u;
             ct  = aad + aad_len;
             tag = ct + ct_len;
-            if (sw_aes128_gcm_decrypt(s_aes_key, iv, M7CR_GCM_IV_LEN, aad, aad_len, ct, ct_len, tag, outbuf) != 0)
+            if (ENG_AES_GCM_DECRYPT(s_aes_key, iv, M7CR_GCM_IV_LEN, aad, aad_len, ct, ct_len, tag, outbuf) != 0)
             {
                 return make_rsp(rsp, rsp_cap, req_id, M7CR_ERR_AUTH, NULL, 0);
             }
@@ -348,7 +364,7 @@ uint32_t crypto_service_handle(const uint8_t *req, uint32_t req_len, uint8_t *rs
             {
                 return make_rsp(rsp, rsp_cap, req_id, M7CR_ERR_NO_KEY, NULL, 0);
             }
-            sw_hmac_sha256(s_hmac_key, s_hmac_key_len, payload, hdr->length, outbuf);
+            ENG_HMAC_SHA256(s_hmac_key, s_hmac_key_len, payload, hdr->length, outbuf);
             return make_rsp(rsp, rsp_cap, req_id, M7CR_OK, outbuf, M7CR_HMAC_LEN);
 
         default:
