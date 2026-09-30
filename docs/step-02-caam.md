@@ -34,38 +34,45 @@ M7_CAAM_HW=0    # 1 = compile real fsl_caam calls (needs device CAAM_Type)
 With both at 0, the firmware behaves like Step 01.  
 With `M7_USE_CAAM=1` and `M7_CAAM_HW=0`, GCM/HMAC return crypto errors until HW is linked (wiring check).
 
-## Platform finding (important)
+## Platform finding (do not skip)
 
-MCUXpresso **MIMX8ML8** headers expose CAAM IRQs and RDC IDs, but **do not**
-define `CAAM_Type` / `CAAM_BASE` the way RT1170 does. The NXP `fsl_caam` driver
-expects those symbols.
+**You can use CAAM.** The i.MX8MP has it at `crypto@30900000` with job rings
+`jr@1000`, `jr@2000`, `jr@3000`.
 
-So Step 02 has two layers:
+**You cannot drop in the SDK `fsl_caam.c` as-is.** That driver and `CAAM_Type`
+in MCUXpresso are for i.MX RT117x, where job-ring registers sit at a **different
+offset** (`0x10000` step) than i.MX8MP (`0x1000` / `0x2000` / `0x3000`).
+Pointing that type at `0x30900000` would program the wrong addresses.
 
-1. **Software architecture** (this commit) — stable switch, same protocol.  
-2. **Silicon bring-up** — add `caam_imx8mp_device.h` (base `0x30900000` per RM),
-   clock/RDC access from M7, link `fsl_caam.c`, set `M7_CAAM_HW=1`.
+Next hardware slice: a small M7 driver written against the **i.MX8MP**
+reference-manual map (or an NXP package that already targets 8M), using
+**job ring 0** (`0x30901000`).
 
-## Linux job-ring ownership
+## Linux ownership (this system)
 
-Linux `caam`/`jr` nodes normally claim the job rings. M7 must use a ring Linux
-does **not** bind.
+Linux will **not** use CAAM. Application crypto later is **SE050**.
+The kernel still binds the driver unless you disable the node.
 
-Typical approach on EVK:
+In this tree’s `imx8mp.dtsi`, `sec_jr0` is already `disabled`, but **`sec_jr1`
+and `sec_jr2` are enabled** — Linux can still run CAAM jobs there.
 
-1. In the RPMsg DT overlay / `imx8mp-evk-rpmsg.dts`, disable or remove one `jr@…`
-   node reserved for M7 (often JR2 or JR3 — confirm against your kernel DT).
-2. Confirm with `cat /proc/interrupts | grep jr` that the reserved ring stays idle
-   under Linux crypto load.
-3. Point M7 `caam_handle_t.jobRing` at that ring (`kCAAM_JobRing2` / `3`).
+Apply [linux/imx8mp-disable-caam.dtsi](../linux/imx8mp-disable-caam.dtsi)
+so `&crypto` and all three rings are `disabled`, rebuild the DTB, and boot that
+image. Check:
 
-Document the chosen ring here when fixed:
+```bash
+ls /proc/device-tree/soc@0/bus@30000000/crypto@30900000/status
+# expect "disabled", or the node absent from the booted tree
+cat /proc/interrupts | grep -i jr || true
+```
 
-| Ring | Owner |
-|------|--------|
-| JR0 | Linux (default) |
-| JR1 | Linux (default) |
-| JR? | **M7 (TBD)** |
+No JR interrupts under Linux load means M7 can own the block.
+
+| Ring | Address | Owner after overlay |
+|------|---------|---------------------|
+| JR0 | 0x30901000 | M7 |
+| JR1 | 0x30902000 | unused |
+| JR2 | 0x30903000 | unused |
 
 ## Soft blob vs black blob
 
@@ -75,13 +82,12 @@ the CAAM blob layout (`keymod || caam_blob`).
 
 ## Checklist
 
-- [x] Branch `step/02-caam`
 - [x] Adapter files + `M7_USE_CAAM` switch
-- [ ] `caam_imx8mp_device.h` + link `fsl_caam.c`
+- [x] Linux overlay that disables CAAM (`linux/imx8mp-disable-caam.dtsi`)
+- [ ] i.MX8MP-specific CAAM job-ring driver (not RT `fsl_caam` register map)
 - [ ] CAAM init self-test on EVK
 - [ ] GCM / HMAC parity vs Step 01 vectors
 - [ ] Black blob export/load across M7 restart
-- [ ] Linux JR reserved and documented
 - [ ] Tag `step-02` + GitHub Release
 
 ## Non-negotiables (unchanged)

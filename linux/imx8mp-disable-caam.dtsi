@@ -1,0 +1,24 @@
+/*
+ * Copyright (c) 2026 Raata <its.raata@gmail.com>
+ *
+ * Disable the Linux CAAM (SEC) so Cortex-M7 is the only user.
+ * Include this overlay in the EVK RPMsg device tree before building the DTB
+ * you boot with (imx8mp-evk-rpmsg.dtb).
+ *
+ * Linux application crypto later uses SE050, not this block.
+ */
+&crypto {
+	status = "disabled";
+};
+
+&sec_jr0 {
+	status = "disabled";
+};
+
+&sec_jr1 {
+	status = "disabled";
+};
+
+&sec_jr2 {
+	status = "disabled";
+};
