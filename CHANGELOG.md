@@ -11,6 +11,7 @@
 - AES-128-ECB NIST KAT in `caam_crypto_init()`; GCM descriptors wired (EVK prove next)
 - Default build remains Step 01 software crypto (`M7_USE_CAAM=0`)
 - Linux CAAM disable overlay; EVK verified (no `3090*.jr` / JR IRQs)
+- Interactive menu in `m7_crypto_client` + [docs/architecture.md](docs/architecture.md)
 
 ### Planned
 

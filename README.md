@@ -14,52 +14,41 @@ roadmap step can swap the crypto engine without rewriting the userspace client.
 | **In progress** | [Step 2 — CAAM AES-GCM / HMAC + black blobs](docs/step-02-caam.md) (`step/02-caam`) |
 | Planned | Step 3 — Hardening (IV policy, key lifecycle, demo scripts) |
 
-Full plan: [docs/ROADMAP.md](docs/ROADMAP.md) · Protocol: [crypto_rpmsg/doc/PROTOCOL.md](crypto_rpmsg/doc/PROTOCOL.md)
+Full plan: [docs/ROADMAP.md](docs/ROADMAP.md) ·  
+**Architecture (learn here):** [docs/architecture.md](docs/architecture.md) ·  
+Protocol: [crypto_rpmsg/doc/PROTOCOL.md](crypto_rpmsg/doc/PROTOCOL.md)
 
 ---
 
-## Architecture (Step 1)
+## Architecture (summary)
+
+See **[docs/architecture.md](docs/architecture.md)** for the full boot path, layer
+map, CAAM ownership, and learning checklist.
 
 ```text
-Linux userspace                         Cortex-M7 (FreeRTOS)
-m7_crypto_client                        main.c  →  app_task
-        |                                 RPMsg-Lite (endpoint 30)
-        v                                 v
-/dev/ttyRPMSG30  <--- virtio RPMsg --->  rpmsg-virtual-tty-channel-1
-        |                                 |
-        +---- shared vring 0x55000000 --->  crypto_service.c
-                                              │
-                                    ┌─────────┴─────────┐
-                                    │ Step 1: sw_crypto │
-                                    │ Step 2: CAAM      │  ← same API surface
-                                    └───────────────────┘
+Linux: m7_crypto_client  →  /dev/ttyRPMSG30  →  virtio RPMsg
+M7:    RPMsg-Lite (@30)  →  crypto_service  →  sw_crypto / CAAM
 ```
-
-| Layer | Role | Files |
-|-------|------|--------|
-| Pipe | RPMsg recv / send | `main.c` |
-| Commands | Protocol + key slots | `crypto_service.c`, `m7_crypto_protocol.h` |
-| Crypto engine | AES-GCM, HMAC, wrap | `sw_crypto.c` → later CAAM |
-| Host test | Raw tty client | `crypto_rpmsg/linux/m7_crypto_client.c` |
 
 ---
 
-## Quick demo (Step 1)
+## Quick demo
 
 Boot M7 from U-Boot **before** Linux (`imx8mp-evk-rpmsg.dtb`). Details:
 [docs/step-01-software-crypto.md](docs/step-01-software-crypto.md).
 
 ```bash
-modprobe imx_rpmsg_tty
+modprobe rpmsg_tty    # or: modprobe imx_rpmsg_tty
 cd crypto_rpmsg/linux && gcc -O2 -o m7_crypto_client m7_crypto_client.c
-export DEV=/dev/ttyRPMSG30
-./m7_crypto_client $DEV ping
-./m7_crypto_client $DEV store-aes 00112233445566778899aabbccddeeff
-./m7_crypto_client $DEV encrypt-gcm 000000000000000000000000 "" "hello"
-./m7_crypto_client $DEV decrypt-gcm 000000000000000000000000 "" "<ct+tag-hex>"
+
+# Interactive menu (recommended)
+./m7_crypto_client /dev/ttyRPMSG30
+
+# Or one-shot CLI
+./m7_crypto_client /dev/ttyRPMSG30 ping
 ```
 
-`status=0 payload=OK` means the channel and protocol are alive.
+Menu: **1** ping · **2** set channel · **3** store AES · **6/7** encrypt/decrypt · **0** quit.
 
 ---
 

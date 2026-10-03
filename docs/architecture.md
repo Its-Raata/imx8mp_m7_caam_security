@@ -1,0 +1,237 @@
+# Architecture — i.MX8MP M7 crypto over RPMsg
+
+**Author:** Raata \<its.raata@gmail.com\>  
+**Audience:** you (learning path) and anyone reading the GitHub tree  
+**Status:** matches `step/02-caam` as of the interactive Linux client
+
+This document explains **how the pieces fit**, not every register bit.
+Wire formats live in [PROTOCOL.md](../crypto_rpmsg/doc/PROTOCOL.md).
+Milestone notes: [step-01](step-01-software-crypto.md), [step-02](step-02-caam.md).
+
+---
+
+## 1. Why this shape exists
+
+Linux on the Cortex-A53 is convenient for apps and networking. The Cortex-M7
+is a smaller, more isolated place to hold keys and run crypto.
+
+Goals:
+
+1. **Keys stay on M7** — Linux sends commands; it does not need the raw AES key
+   after `store-aes` (except when you deliberately export a soft blob).
+2. **Stable wire protocol** — swap software crypto for CAAM without rewriting
+   the Linux client.
+3. **Boot-time ownership** — M7 starts from U-Boot (`bootaux`) before Linux;
+   Linux attaches via `remoteproc` + virtio RPMsg and opens `/dev/ttyRPMSG30`.
+
+Later, application-level crypto on Linux can move to **SE050**. CAAM on this
+system is reserved for M7 (Linux DTB disables `&crypto` / job rings).
+
+---
+
+## 2. Big picture
+
+```text
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Cortex-A53  (Linux)                                                     │
+│                                                                          │
+│   m7_crypto_client  ──raw open/read/write──►  /dev/ttyRPMSG30            │
+│         │                                          │                     │
+│         │                                          ▼                     │
+│         │                              imx_rpmsg_tty / rpmsg_tty         │
+│         │                                          │                     │
+│         │                                          ▼                     │
+│         │                              virtio_rpmsg_bus (virtio0)        │
+│         │                                          │                     │
+│         └──────── shared DDR vrings / buffers ─────┘                     │
+│                    (vdev @ 0x55000000, …)                                │
+└──────────────────────────────────┬───────────────────────────────────────┘
+                                   │ MU / RPMsg-Lite link
+┌──────────────────────────────────▼───────────────────────────────────────┐
+│  Cortex-M7  (FreeRTOS)                                                   │
+│                                                                          │
+│   main.c  app_task                                                       │
+│      │  1) RPMsg-Lite remote init + wait link                            │
+│      │  2) announce "rpmsg-virtual-tty-channel-1" @ endpoint 30          │
+│      │  3) crypto_service_init()  (CAAM JR0 if M7_USE_CAAM)              │
+│      │  4) recv → crypto_service_handle → send                           │
+│      ▼                                                                   │
+│   crypto_service.c     protocol + key slots + soft-blob wrap             │
+│      │                                                                   │
+│      ├── sw_crypto.*     Step 01 software AES-GCM / HMAC                 │
+│      └── caam_crypto.*   Step 02 CAAM (JR0 @ 0x30901000)                 │
+│             └── caam_imx8mp_jr.*   descriptors + DMA in DDR @ 0x80080000│
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+Mental model: the client talks to a **TTY that is really an RPMsg channel**.
+Everything underneath is shared memory + mailbox, not UART wires.
+
+---
+
+## 3. Boot and ownership sequence
+
+Order matters. If you reverse it, you get “no `/dev/ttyRPMSG*`” or a stuck M7.
+
+```text
+U-Boot
+  fatload  .bin  →  TCM (0x7e0000) via staging DDR
+  bootaux  M7
+  fatload  Image + imx8mp-evk-rpmsg.dtb
+  booti
+
+Linux
+  remoteproc attaches to already-running M7
+  virtio RPMsg host comes online
+  M7 announces channel  →  creating channel … addr 0x1e
+  modprobe rpmsg_tty    →  /dev/ttyRPMSG30
+```
+
+| Piece | Who owns it | Notes |
+|-------|-------------|--------|
+| M7 TCM image | U-Boot `bootaux` | Not started by `echo start > remoteproc…` in the usual flow |
+| RPMsg reserved DDR | Device tree | `vdev0vring*`, `vdevbuffer`, `rsc_table` |
+| M7 reserved DDR `0x80000000` | Device tree `no-map` | CAAM DMA arena at `0x80080000` (TCM is not CAAM-visible) |
+| CAAM block `0x30900000` | **M7 only** | Linux DTB: `&crypto` / `&sec_jr*` `disabled` |
+| `/dev/ttyRPMSG30` | `rpmsg_tty` module | Channel can exist in sysfs before the TTY node appears |
+
+---
+
+## 4. Software layers (M7)
+
+| Layer | File(s) | Responsibility |
+|-------|---------|----------------|
+| Entry / RTOS | `main.c` | Board init, FreeRTOS task, RPMsg loop |
+| Protocol | `m7_crypto_protocol.h`, `crypto_service.c` | Parse headers, status codes, key slots |
+| Soft blobs | `crypto_service.c` | Prototype wrap (AES-CTR + HMAC) for export/load |
+| Engine switch | `M7_USE_CAAM` in `armgcc/config.cmake` | Route GCM/HMAC to `sw_*` or `caam_*` |
+| Software crypto | `sw_crypto.*` | Step 01 reference |
+| CAAM crypto | `caam_crypto.*`, `caam_imx8mp_jr.*` | Step 02 JR0 + descriptors |
+| Black blobs | `caam_blob.*` | Stub until GCM path is solid on silicon |
+
+`crypto_service_handle()` is the only place that turns a command into crypto.
+The RPMsg task never “knows” AES; it only shuttles buffers.
+
+---
+
+## 5. Linux client
+
+File: [`crypto_rpmsg/linux/m7_crypto_client.c`](../crypto_rpmsg/linux/m7_crypto_client.c)
+
+Two ways to use it:
+
+**Interactive menu** (default):
+
+```bash
+modprobe rpmsg_tty   # once per boot if needed
+cd crypto_rpmsg/linux
+gcc -O2 -o m7_crypto_client m7_crypto_client.c
+./m7_crypto_client                  # or: ./m7_crypto_client /dev/ttyRPMSG30
+```
+
+Menu map:
+
+| # | Action |
+|---|--------|
+| 1 | Ping |
+| 2 | Set / open RPMsg device path |
+| 3 | Store AES-128 key |
+| 4 | Export AES soft blob → file |
+| 5 | Load AES soft blob ← file |
+| 6 | Encrypt AES-GCM |
+| 7 | Decrypt AES-GCM (can reuse last ciphertext) |
+| 8–11 | HMAC store / export / load / sign |
+| 0 | Quit |
+
+**One-shot CLI** (scripts / CI):
+
+```bash
+./m7_crypto_client /dev/ttyRPMSG30 ping
+./m7_crypto_client /dev/ttyRPMSG30 store-aes 00112233445566778899aabbccddeeff
+```
+
+Important client details:
+
+- Opens the device in **raw** termios mode (command `PING` is `0x0A`; cooked
+  tty would corrupt the binary header).
+- Drains the driver’s probe banner (`hello world!`) before the first request.
+- Speaks only the M7CR header + payload; no line protocol.
+
+---
+
+## 6. Request path (one encrypt)
+
+```text
+1. Client builds m7cr_req_hdr_t + ENCRYPT_GCM payload
+2. write() to /dev/ttyRPMSG30
+3. Linux rpmsg_tty → virtio → shared vring
+4. M7 RPMsg-Lite callback / queue wakes app_task
+5. crypto_service_handle():
+      - check magic/version/length
+      - require s_aes_valid
+      - ENG_AES_GCM_ENCRYPT(...)   // sw or CAAM
+6. Response header + ct||tag
+7. Client read() → print hex
+```
+
+Status `5` = no key stored. Status `6` = crypto engine failed (e.g. CAAM job).
+Status `0` = success.
+
+---
+
+## 7. CAAM path (Step 02)
+
+Linux must not bind job rings (verified empty `3090*.jr` / no JR IRQs).
+
+On M7, with `M7_USE_CAAM=1` and `M7_CAAM_HW=1`:
+
+1. After RPMsg announce, `caam_crypto_init()` resets **JR0** (`0x30901000`).
+2. Rings + descriptors live in reserved DDR (`0x80080000`), not TCM.
+3. Init runs a NIST AES-128-ECB one-block KAT.
+4. UART prints `CAAM: JR0 ready (ECB KAT OK)` or `CAAM: init/self-test FAILED`.
+5. GCM uses single-job descriptors submitted through the same JR.
+
+We intentionally **do not** use MCUX `fsl_caam` + RT117x `CAAM_Type` (wrong JR
+spacing). See [step-02-caam.md](step-02-caam.md).
+
+---
+
+## 8. Soft blob vs black blob
+
+| Kind | Where | Purpose today |
+|------|--------|----------------|
+| Soft blob | M7 wrap key in `crypto_service.c` | Export/load keys across M7 restart for demos |
+| Black blob | CAAM (future) | Hardware-bound wrap; replace soft format later |
+
+Soft blobs are a **prototype**. Do not treat them as production key protection.
+
+---
+
+## 9. File map (where to look when learning)
+
+```text
+main.c                         boot → RPMsg → command loop
+crypto_service.c               protocol state machine
+m7_crypto_protocol.h           magic, cmds, status, sizes
+sw_crypto.c / caam_crypto.c    engines behind the same API
+caam_imx8mp_jr.c               i.MX8MP job-ring driver
+linux/imx8mp-disable-caam.dtsi include into imx8mp-evk-rpmsg.dts
+crypto_rpmsg/linux/            host client (menu + CLI)
+crypto_rpmsg/doc/PROTOCOL.md   on-the-wire bytes
+docs/step-0x-*.md              milestone checklists
+```
+
+---
+
+## 10. Learning checklist (suggested order)
+
+1. Boot flow: U-Boot `bootaux` → Linux attach → `modprobe rpmsg_tty`.
+2. Menu **1 Ping** — proves endpoint + protocol header.
+3. Menu **3 Store AES** then **6 Encrypt** / **7 Decrypt** — key slot + GCM.
+4. Menu **4 / 5** — soft blob round-trip across M7 reset (same blob file).
+5. Read `crypto_service.c` `ENCRYPT_GCM` case alongside PROTOCOL.md.
+6. Read `caam_imx8mp_jr.c` enqueue/dequeue; compare to Linux `jr.c` mentally.
+7. Confirm UART `CAAM: JR0 ready` when hardware flags are on.
+
+When you are ready, we walk these steps one by one with questions — not just
+commands.
