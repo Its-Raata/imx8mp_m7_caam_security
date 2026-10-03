@@ -8,6 +8,7 @@
 #include "crypto_service.h"
 #include "sw_crypto.h"
 #include <string.h>
+#include "fsl_debug_console.h"
 
 #if defined(M7_USE_CAAM) && (M7_USE_CAAM)
 #include "caam_crypto.h"
@@ -42,7 +43,14 @@ void crypto_service_init(void)
     s_hmac_valid   = 0;
     s_hmac_key_len = 0;
 #if defined(M7_USE_CAAM) && (M7_USE_CAAM)
-    (void)caam_crypto_init();
+    if (caam_crypto_init() == 0)
+    {
+        (void)PRINTF("CAAM: JR0 ready (ECB KAT OK)\r\n");
+    }
+    else
+    {
+        (void)PRINTF("CAAM: init/self-test FAILED\r\n");
+    }
 #endif
 }
 

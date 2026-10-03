@@ -47,7 +47,7 @@ if(NOT DEFINED M7_USE_CAAM)
     set(M7_USE_CAAM 0)
 endif()
 add_compile_definitions(M7_USE_CAAM=${M7_USE_CAAM})
-# Hardware bring-up (fsl_caam + CAAM_Type for MIMX8ML8): set M7_CAAM_HW=1 when ready.
+# Hardware bring-up: i.MX8MP JR0 driver (not RT fsl_caam CAAM_Type).
 if(NOT DEFINED M7_CAAM_HW)
     set(M7_CAAM_HW 0)
 endif()

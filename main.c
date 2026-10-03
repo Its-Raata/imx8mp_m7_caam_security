@@ -66,9 +66,9 @@ static void app_task(void *param)
 
     (void)param;
     (void)ns_handle;
-    crypto_service_init();
 
-    (void)PRINTF("\r\nM7 Crypto RPMsg service (AES-GCM + HMAC, soft blob)\r\n");
+    /* Bring up RPMsg first so /dev/ttyRPMSG* appears even if CAAM init fails/hangs. */
+    (void)PRINTF("\r\nM7 Crypto RPMsg service (AES-GCM + HMAC)\r\n");
     (void)PRINTF("RPMSG Share Base Addr is 0x%x\r\n", RPMSG_LITE_SHMEM_BASE);
 
     my_rpmsg = rpmsg_lite_remote_init((void *)RPMSG_LITE_SHMEM_BASE, RPMSG_LITE_LINK_ID, RL_NO_FLAGS);
@@ -88,6 +88,8 @@ static void app_task(void *param)
     SDK_DelayAtLeastUs(1000000U, SDK_DEVICE_MAXIMUM_CPU_CLOCK_FREQUENCY);
     (void)rpmsg_ns_announce(my_rpmsg, my_ept, RPMSG_LITE_NS_ANNOUNCE_STRING, (uint32_t)RL_NS_CREATE);
     (void)PRINTF("Nameservice announce: %s\r\n", RPMSG_LITE_NS_ANNOUNCE_STRING);
+
+    crypto_service_init();
     (void)PRINTF("Ready for crypto requests.\r\n");
 
     for (;;)
