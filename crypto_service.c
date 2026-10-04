@@ -32,6 +32,9 @@ static uint8_t s_hmac_key[M7CR_HMAC_KEY_MAX];
 static uint16_t s_hmac_key_len;
 static uint8_t s_hmac_valid;
 
+/* Reported in PING payload (no M7 UART required on custom boards). */
+static const char *s_engine_tag = "WAIT";
+
 /* Simple counter IV for soft-blob wrap (not a CSPRNG; OK for prototype). */
 static uint32_t s_iv_counter = 1u;
 
@@ -43,14 +46,9 @@ void crypto_service_init(void)
     s_hmac_valid   = 0;
     s_hmac_key_len = 0;
 #if defined(M7_USE_CAAM) && (M7_USE_CAAM)
-    if (caam_crypto_init() == 0)
-    {
-        (void)PRINTF("CAAM: JR0 ready (ECB KAT OK)\r\n");
-    }
-    else
-    {
-        (void)PRINTF("CAAM: init/self-test FAILED\r\n");
-    }
+    s_engine_tag = "WAIT";
+#else
+    s_engine_tag = "OK-SW";
 #endif
 }
 
@@ -205,9 +203,29 @@ uint32_t crypto_service_handle(const uint8_t *req, uint32_t req_len, uint8_t *rs
     switch (hdr->cmd)
     {
         case M7CR_CMD_PING:
-            outbuf[0] = 'O';
-            outbuf[1] = 'K';
-            return make_rsp(rsp, rsp_cap, req_id, M7CR_OK, outbuf, 2);
+        {
+            /*
+             * First ping brings JR1 up and runs ECB / GCM / HMAC KATs.
+             * Soft-blob cmds never touch CAAM.
+             */
+#if defined(M7_USE_CAAM) && (M7_USE_CAAM) && defined(M7_CAAM_TOUCH) && (M7_CAAM_TOUCH)
+            s_engine_tag = caam_crypto_ping_step();
+#elif defined(M7_USE_CAAM) && (M7_USE_CAAM)
+            if (strcmp(s_engine_tag, "WAIT") == 0)
+            {
+                s_engine_tag = "NO-TOUCH";
+            }
+#endif
+            {
+                size_t n = strlen(s_engine_tag);
+                if (n > sizeof(outbuf))
+                {
+                    n = sizeof(outbuf);
+                }
+                memcpy(outbuf, s_engine_tag, n);
+                return make_rsp(rsp, rsp_cap, req_id, M7CR_OK, outbuf, (uint32_t)n);
+            }
+        }
 
         case M7CR_CMD_STORE_AES_KEY:
             if (hdr->length != M7CR_AES_KEY_LEN)
@@ -254,6 +272,12 @@ uint32_t crypto_service_handle(const uint8_t *req, uint32_t req_len, uint8_t *rs
             uint16_t aad_len, pt_len;
             const uint8_t *aad;
             const uint8_t *pt;
+#if defined(M7_USE_CAAM) && (M7_USE_CAAM)
+            if (caam_crypto_is_ready() == 0)
+            {
+                return make_rsp(rsp, rsp_cap, req_id, M7CR_ERR_CRYPTO, NULL, 0);
+            }
+#endif
             if (s_aes_valid == 0u)
             {
                 return make_rsp(rsp, rsp_cap, req_id, M7CR_ERR_NO_KEY, NULL, 0);
@@ -290,6 +314,12 @@ uint32_t crypto_service_handle(const uint8_t *req, uint32_t req_len, uint8_t *rs
             const uint8_t *aad;
             const uint8_t *ct;
             const uint8_t *tag;
+#if defined(M7_USE_CAAM) && (M7_USE_CAAM)
+            if (caam_crypto_is_ready() == 0)
+            {
+                return make_rsp(rsp, rsp_cap, req_id, M7CR_ERR_CRYPTO, NULL, 0);
+            }
+#endif
             if (s_aes_valid == 0u)
             {
                 return make_rsp(rsp, rsp_cap, req_id, M7CR_ERR_NO_KEY, NULL, 0);
@@ -368,6 +398,12 @@ uint32_t crypto_service_handle(const uint8_t *req, uint32_t req_len, uint8_t *rs
             return make_rsp(rsp, rsp_cap, req_id, M7CR_OK, outbuf, out_len);
 
         case M7CR_CMD_SIGN_HMAC:
+#if defined(M7_USE_CAAM) && (M7_USE_CAAM)
+            if (caam_crypto_is_ready() == 0)
+            {
+                return make_rsp(rsp, rsp_cap, req_id, M7CR_ERR_CRYPTO, NULL, 0);
+            }
+#endif
             if (s_hmac_valid == 0u)
             {
                 return make_rsp(rsp, rsp_cap, req_id, M7CR_ERR_NO_KEY, NULL, 0);

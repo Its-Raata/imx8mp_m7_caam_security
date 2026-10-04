@@ -17,6 +17,18 @@ extern "C" {
 /* 0 = ready, non-zero = not available / hardware error. */
 int caam_crypto_init(void);
 
+/* Short ASCII tag for PING when init failed, e.g. "FAIL-RESET". */
+const char *caam_crypto_fail_tag(void);
+
+/* Read-only MMIO check for PING: "SEE:xxxxxxxx" or "FAIL-P:xxxxxxxx". */
+const char *caam_crypto_probe_tag(void);
+
+/* One CAAM bring-up step per call; returns static tag string for PING. */
+const char *caam_crypto_ping_step(void);
+
+/* 1 after phased bring-up reached OK-CAAM. */
+int caam_crypto_is_ready(void);
+
 int caam_aes128_gcm_encrypt(const uint8_t key[16],
                             const uint8_t *iv, size_t iv_len,
                             const uint8_t *aad, size_t aad_len,

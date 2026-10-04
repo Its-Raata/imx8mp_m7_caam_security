@@ -38,7 +38,7 @@ enum m7cr_cmd
     M7CR_CMD_LOAD_HMAC_BLOB  = 7,  /* in: soft blob; out: empty */
     M7CR_CMD_EXPORT_HMAC_BLOB= 8,  /* in: empty; out: soft blob */
     M7CR_CMD_SIGN_HMAC       = 9,  /* in: data; out: 32B mac */
-    M7CR_CMD_PING            = 10, /* in: empty; out: "OK" */
+    M7CR_CMD_PING            = 10, /* in: empty; out: "OK-SW" | "OK-CAAM" | "OK-CAAM-FAIL" */
 };
 
 enum m7cr_status

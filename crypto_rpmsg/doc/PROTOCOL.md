@@ -31,7 +31,7 @@ Response: same layout, but `cmd` field is replaced by `status`.
 | 7 | LOAD_HMAC_BLOB | soft blob | empty |
 | 8 | EXPORT_HMAC_BLOB | empty | soft blob |
 | 9 | SIGN_HMAC | data | `mac[32]` |
-| 10 | PING | empty | `OK` |
+| 10 | PING | empty | `OK-SW` / `OK-CAAM` / `FAIL-*` (engine status; no M7 UART needed) |
 
 ## Status codes
 

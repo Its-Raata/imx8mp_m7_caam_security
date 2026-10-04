@@ -53,13 +53,13 @@ system is reserved for M7 (Linux DTB disables `&crypto` / job rings).
 │   main.c  app_task                                                       │
 │      │  1) RPMsg-Lite remote init + wait link                            │
 │      │  2) announce "rpmsg-virtual-tty-channel-1" @ endpoint 30          │
-│      │  3) crypto_service_init()  (CAAM JR0 if M7_USE_CAAM)              │
+│      │  3) crypto_service_init()  (CAAM JR1 if M7_USE_CAAM)              │
 │      │  4) recv → crypto_service_handle → send                           │
 │      ▼                                                                   │
 │   crypto_service.c     protocol + key slots + soft-blob wrap             │
 │      │                                                                   │
 │      ├── sw_crypto.*     Step 01 software AES-GCM / HMAC                 │
-│      └── caam_crypto.*   Step 02 CAAM (JR0 @ 0x30901000)                 │
+│      └── caam_crypto.*   Step 02 CAAM (JR1 @ 0x30902000)                 │
 │             └── caam_imx8mp_jr.*   descriptors + DMA in DDR @ 0x80080000│
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -92,7 +92,7 @@ Linux
 | M7 TCM image | U-Boot `bootaux` | Not started by `echo start > remoteproc…` in the usual flow |
 | RPMsg reserved DDR | Device tree | `vdev0vring*`, `vdevbuffer`, `rsc_table` |
 | M7 reserved DDR `0x80000000` | Device tree `no-map` | CAAM DMA arena at `0x80080000` (TCM is not CAAM-visible) |
-| CAAM block `0x30900000` | **M7 only** | Linux DTB: `&crypto` / `&sec_jr*` `disabled` |
+| CAAM block `0x30900000` | **M7 only** | Linux DTB: `&crypto` / `&sec_jr*` `disabled`; U-Boot `mcu_rdc` PDAP/MDA CAAM → DID1 (see `linux/u-boot/`) |
 | `/dev/ttyRPMSG30` | `rpmsg_tty` module | Channel can exist in sysfs before the TTY node appears |
 
 ---
@@ -106,7 +106,7 @@ Linux
 | Soft blobs | `crypto_service.c` | Prototype wrap (AES-CTR + HMAC) for export/load |
 | Engine switch | `M7_USE_CAAM` in `armgcc/config.cmake` | Route GCM/HMAC to `sw_*` or `caam_*` |
 | Software crypto | `sw_crypto.*` | Step 01 reference |
-| CAAM crypto | `caam_crypto.*`, `caam_imx8mp_jr.*` | Step 02 JR0 + descriptors |
+| CAAM crypto | `caam_crypto.*`, `caam_imx8mp_jr.*` | Step 02 JR1 + descriptors |
 | Black blobs | `caam_blob.*` | Stub until GCM path is solid on silicon |
 
 `crypto_service_handle()` is the only place that turns a command into crypto.
@@ -185,11 +185,11 @@ Linux must not bind job rings (verified empty `3090*.jr` / no JR IRQs).
 
 On M7, with `M7_USE_CAAM=1` and `M7_CAAM_HW=1`:
 
-1. After RPMsg announce, `caam_crypto_init()` resets **JR0** (`0x30901000`).
-2. Rings + descriptors live in reserved DDR (`0x80080000`), not TCM.
-3. Init runs a NIST AES-128-ECB one-block KAT.
-4. UART prints `CAAM: JR0 ready (ECB KAT OK)` or `CAAM: init/self-test FAILED`.
-5. GCM uses single-job descriptors submitted through the same JR.
+1. ATF starts JR1 (`JRSTART` bit 1) and locks `JR1MID = LDID|6`. Page 0 is
+   unreachable from the M7, so the ring must already be started.
+2. First `ping` programs JR1 rings in reserved DDR (`0x80080000`) and runs
+   NIST AES-128-ECB, AES-GCM TC2, and RFC 4231 HMAC-SHA256 KATs.
+3. Later GCM / HMAC commands use the same single-job descriptors.
 
 We intentionally **do not** use MCUX `fsl_caam` + RT117x `CAAM_Type` (wrong JR
 spacing). See [step-02-caam.md](step-02-caam.md).
@@ -231,7 +231,8 @@ docs/step-0x-*.md              milestone checklists
 4. Menu **4 / 5** — soft blob round-trip across M7 reset (same blob file).
 5. Read `crypto_service.c` `ENCRYPT_GCM` case alongside PROTOCOL.md.
 6. Read `caam_imx8mp_jr.c` enqueue/dequeue; compare to Linux `jr.c` mentally.
-7. Confirm UART `CAAM: JR0 ready` when hardware flags are on.
+7. Confirm engine via **ping** payload: `OK-CAAM` / `OK-SW` / `FAIL-*`
+   (custom boards often have no usable M7 UART4).
 
 When you are ready, we walk these steps one by one with questions — not just
 commands.
