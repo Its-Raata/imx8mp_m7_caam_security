@@ -20,7 +20,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-#include "../m7/m7_crypto_protocol.h"
+#include "../../m7_crypto_protocol.h"
 
 #ifndef DEFAULT_RPMSG_DEV
 #define DEFAULT_RPMSG_DEV "/dev/ttyRPMSG30"
@@ -697,13 +697,13 @@ static void print_menu(void)
     printf(" 1) Ping M7\n");
     printf(" 2) Set / open RPMsg channel (ttyRPMSG)\n");
     printf(" 3) Store AES-128 key\n");
-    printf(" 4) Export AES soft blob to file\n");
-    printf(" 5) Load AES soft blob from file\n");
+    printf(" 4) Export AES blob to file\n");
+    printf(" 5) Load AES blob from file\n");
     printf(" 6) Encrypt AES-GCM\n");
     printf(" 7) Decrypt AES-GCM\n");
     printf(" 8) Store HMAC key\n");
-    printf(" 9) Export HMAC soft blob to file\n");
-    printf("10) Load HMAC soft blob from file\n");
+    printf(" 9) Export HMAC blob to file\n");
+    printf("10) Load HMAC blob from file\n");
     printf("11) Sign with HMAC-SHA256\n");
     printf(" 0) Quit\n");
     printf("======================================\n");

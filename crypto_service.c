@@ -1,29 +1,32 @@
 /*
  * Copyright (c) 2026 Raata <its.raata@gmail.com>
  *
- * Command handlers and soft-blob key wrap for the M7 crypto RPMsg service.
+ * Command handlers and key wrap for the M7 crypto RPMsg service.
  *
- * Crypto engine: software (Step 01) or CAAM (Step 02) via M7_USE_CAAM.
+ * Engine: software (M7_USE_CAAM=0) or CAAM (default). Wrap: CAAM BLOB
+ * when CAAM is on; Step-01 software wrap only when CAAM is compiled out.
  */
 #include "crypto_service.h"
-#include "sw_crypto.h"
 #include <string.h>
-#include "fsl_debug_console.h"
 
 #if defined(M7_USE_CAAM) && (M7_USE_CAAM)
+#include "caam_blob.h"
 #include "caam_crypto.h"
 #define ENG_AES_GCM_ENCRYPT caam_aes128_gcm_encrypt
 #define ENG_AES_GCM_DECRYPT caam_aes128_gcm_decrypt
 #define ENG_HMAC_SHA256     caam_hmac_sha256
 #else
+#include "sw_crypto.h"
 #define ENG_AES_GCM_ENCRYPT sw_aes128_gcm_encrypt
 #define ENG_AES_GCM_DECRYPT sw_aes128_gcm_decrypt
 #define ENG_HMAC_SHA256     sw_hmac_sha256
 #endif
 
-/* Soft-blob wrap key (Step 01). Step 02 HW black blobs use caam_blob when M7_CAAM_HW. */
+#if !(defined(M7_USE_CAAM) && (M7_USE_CAAM))
+/* Soft-blob wrap key — only when CAAM is compiled out. */
 static const uint8_t s_wrap_key[16] = {
     0x4d, 0x37, 0x43, 0x52, 0x53, 0x4f, 0x46, 0x54, 0x42, 0x4c, 0x4f, 0x42, 0x4b, 0x45, 0x59, 0x31};
+#endif
 
 static uint8_t s_aes_key[M7CR_AES_KEY_LEN];
 static uint8_t s_aes_valid;
@@ -35,7 +38,7 @@ static uint8_t s_hmac_valid;
 /* Reported in PING payload (no M7 UART required on custom boards). */
 static const char *s_engine_tag = "WAIT";
 
-/* Simple counter IV for soft-blob wrap (not a CSPRNG; OK for prototype). */
+/* Counter mixed into the wrap IV / CAAM key modifier. */
 static uint32_t s_iv_counter = 1u;
 
 void crypto_service_init(void)
@@ -82,6 +85,80 @@ static uint32_t make_rsp(uint8_t *rsp,
     return (uint32_t)(sizeof(m7cr_rsp_hdr_t) + payload_len);
 }
 
+#if defined(M7_USE_CAAM) && (M7_USE_CAAM)
+static int ensure_caam(void)
+{
+    if (caam_crypto_is_ready() != 0)
+    {
+        return 0;
+    }
+    s_engine_tag = caam_crypto_ping_step();
+    return (caam_crypto_is_ready() != 0) ? 0 : -1;
+}
+
+static uint32_t blob_size_for_key(uint16_t key_len)
+{
+    return (uint32_t)(sizeof(m7cr_blob_hdr_t) + key_len + CAAM_BLOB_OVERHEAD);
+}
+
+static int wrap_key_blob(uint16_t type, const uint8_t *key, uint16_t key_len, uint8_t *out, uint32_t *out_len)
+{
+    m7cr_blob_hdr_t *hdr;
+    uint32_t need = blob_size_for_key(key_len);
+    uint32_t blen;
+
+    if ((key_len == 0u) || (key_len > 64u) || (*out_len < need) || (ensure_caam() != 0))
+    {
+        return -1;
+    }
+
+    hdr = (m7cr_blob_hdr_t *)out;
+    memset(hdr, 0, sizeof(*hdr));
+    hdr->magic   = M7CR_BLOB_MAGIC;
+    hdr->version = M7CR_BLOB_VERSION_CAAM;
+    hdr->type    = type;
+    hdr->key_len = key_len;
+    memcpy(hdr->wrap_iv, "M7CRBLOB", 8);
+    hdr->wrap_iv[12] = (uint8_t)(s_iv_counter >> 24);
+    hdr->wrap_iv[13] = (uint8_t)(s_iv_counter >> 16);
+    hdr->wrap_iv[14] = (uint8_t)(s_iv_counter >> 8);
+    hdr->wrap_iv[15] = (uint8_t)(s_iv_counter);
+    s_iv_counter++;
+
+    blen = need - (uint32_t)sizeof(m7cr_blob_hdr_t);
+    if (caam_black_blob_wrap(hdr->wrap_iv, key, key_len, out + sizeof(m7cr_blob_hdr_t), &blen) != 0)
+    {
+        return -1;
+    }
+    *out_len = (uint32_t)sizeof(m7cr_blob_hdr_t) + blen;
+    return 0;
+}
+
+static int unwrap_key_blob(uint16_t expect_type, const uint8_t *blob, uint32_t blob_len, uint8_t *key, uint16_t *key_len)
+{
+    const m7cr_blob_hdr_t *hdr = (const m7cr_blob_hdr_t *)blob;
+    uint32_t need;
+
+    if ((blob_len < sizeof(m7cr_blob_hdr_t) + CAAM_BLOB_OVERHEAD) || (hdr->magic != M7CR_BLOB_MAGIC) ||
+        (hdr->version != M7CR_BLOB_VERSION_CAAM) || (hdr->type != expect_type) || (hdr->key_len == 0u) ||
+        (hdr->key_len > 64u) || (ensure_caam() != 0))
+    {
+        return -1;
+    }
+    need = (uint32_t)sizeof(m7cr_blob_hdr_t) + (uint32_t)hdr->key_len + CAAM_BLOB_OVERHEAD;
+    if (blob_len < need)
+    {
+        return -1;
+    }
+    if (caam_black_blob_unwrap(hdr->wrap_iv, blob + sizeof(m7cr_blob_hdr_t),
+                               (uint32_t)hdr->key_len + CAAM_BLOB_OVERHEAD, key, hdr->key_len) != 0)
+    {
+        return -1;
+    }
+    *key_len = hdr->key_len;
+    return 0;
+}
+#else
 static uint32_t blob_size_for_key(uint16_t key_len)
 {
     uint16_t padded = (uint16_t)((key_len + 15u) & (uint16_t)~15u);
@@ -105,7 +182,7 @@ static int wrap_key_blob(uint16_t type, const uint8_t *key, uint16_t key_len, ui
     hdr = (m7cr_blob_hdr_t *)out;
     memset(hdr, 0, sizeof(*hdr));
     hdr->magic   = M7CR_BLOB_MAGIC;
-    hdr->version = M7CR_BLOB_VERSION;
+    hdr->version = M7CR_BLOB_VERSION_SOFT;
     hdr->type    = type;
     hdr->key_len = key_len;
     memset(hdr->wrap_iv, 0, 16);
@@ -140,7 +217,7 @@ static int unwrap_key_blob(uint16_t expect_type, const uint8_t *blob, uint32_t b
     uint32_t i;
 
     if ((blob_len < sizeof(m7cr_blob_hdr_t) + M7CR_HMAC_LEN) || (hdr->magic != M7CR_BLOB_MAGIC) ||
-        (hdr->version != M7CR_BLOB_VERSION) || (hdr->type != expect_type) || (hdr->key_len == 0u) ||
+        (hdr->version != M7CR_BLOB_VERSION_SOFT) || (hdr->type != expect_type) || (hdr->key_len == 0u) ||
         (hdr->key_len > 64u))
     {
         return -1;
@@ -170,6 +247,7 @@ static int unwrap_key_blob(uint16_t expect_type, const uint8_t *blob, uint32_t b
     memset(plain, 0, sizeof(plain));
     return 0;
 }
+#endif
 
 uint32_t crypto_service_handle(const uint8_t *req, uint32_t req_len, uint8_t *rsp, uint32_t rsp_cap)
 {
@@ -204,10 +282,7 @@ uint32_t crypto_service_handle(const uint8_t *req, uint32_t req_len, uint8_t *rs
     {
         case M7CR_CMD_PING:
         {
-            /*
-             * First ping brings JR1 up and runs ECB / GCM / HMAC KATs.
-             * Soft-blob cmds never touch CAAM.
-             */
+            /* First ping brings JR1 up and runs ECB / GCM / HMAC / BLOB KATs. */
 #if defined(M7_USE_CAAM) && (M7_USE_CAAM) && defined(M7_CAAM_TOUCH) && (M7_CAAM_TOUCH)
             s_engine_tag = caam_crypto_ping_step();
 #elif defined(M7_USE_CAAM) && (M7_USE_CAAM)

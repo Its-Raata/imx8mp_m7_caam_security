@@ -87,6 +87,10 @@
 #define CAAM8_CMD_LOAD_IMM_CLRW         (0x10880004u)
 #define CAAM8_CMD_CLRW_C1D_C1DS         (0x08000004u)
 #define CAAM8_CMD_LOAD_IMM_C1DS         (0x12820004u)
+#define CAAM8_CMD_SEQ_IN                (0xF0000000u)
+#define CAAM8_CMD_SEQ_OUT               (0xF8000000u)
+#define CAAM8_CMD_OP_BLOB_ENCAP         (0x870D0000u) /* ENCAP | BLOB */
+#define CAAM8_CMD_OP_BLOB_DECAP         (0x860D0000u) /* DECAP | BLOB */
 
 static inline uint32_t caam8_rd(uint32_t base, uint32_t off)
 {

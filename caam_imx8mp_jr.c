@@ -158,21 +158,6 @@ int caam8_jr_recycle(void)
     return caam8_jr_setup_rings();
 }
 
-int caam8_jr0_init(void)
-{
-    s_inited         = 0;
-    s_last_jr_status = 0;
-    s_arena          = (caam8_dma_arena_t *)(uintptr_t)CAAM8_DMA_ARENA;
-    (void)memset(s_arena, 0, sizeof(*s_arena));
-
-    caam8_clocks_on();
-    if (caam8_probe_readonly() != 0)
-    {
-        return CAAM8_ERR_PROBE;
-    }
-    return caam8_jr_setup_rings();
-}
-
 int caam8_jr0_run(uint32_t *desc, uint32_t *jr_status)
 {
     uint32_t t;
@@ -233,11 +218,6 @@ int caam8_jr0_run(uint32_t *desc, uint32_t *jr_status)
     return (status == 0u) ? 0 : CAAM8_ERR_STATUS;
 }
 
-uint32_t caam8_last_jr_status(void)
-{
-    return s_last_jr_status;
-}
-
 uint8_t *caam8_dma_scratch(void)
 {
     return (s_arena != NULL) ? s_arena->scratch : NULL;
@@ -251,9 +231,4 @@ size_t caam8_dma_scratch_size(void)
 uint32_t *caam8_dma_desc(void)
 {
     return (s_arena != NULL) ? s_arena->desc : NULL;
-}
-
-size_t caam8_dma_desc_words(void)
-{
-    return CAAM8_DESC_WORDS;
 }

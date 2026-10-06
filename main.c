@@ -20,7 +20,6 @@
 #include "rsc_table.h"
 
 #include "crypto_service.h"
-#include "m7_crypto_protocol.h"
 
 /*******************************************************************************
  * Definitions

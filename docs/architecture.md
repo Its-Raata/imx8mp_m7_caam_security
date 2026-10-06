@@ -18,7 +18,7 @@ is a smaller, more isolated place to hold keys and run crypto.
 Goals:
 
 1. **Keys stay on M7** — Linux sends commands; it does not need the raw AES key
-   after `store-aes` (except when you deliberately export a soft blob).
+   after `store-aes` (except when you deliberately export a blob).
 2. **Stable wire protocol** — swap software crypto for CAAM without rewriting
    the Linux client.
 3. **Boot-time ownership** — M7 starts from U-Boot (`bootaux`) before Linux;
@@ -56,11 +56,12 @@ system is reserved for M7 (Linux DTB disables `&crypto` / job rings).
 │      │  3) crypto_service_init()  (CAAM JR1 if M7_USE_CAAM)              │
 │      │  4) recv → crypto_service_handle → send                           │
 │      ▼                                                                   │
-│   crypto_service.c     protocol + key slots + soft-blob wrap             │
+│   crypto_service.c     protocol + key slots + CAAM BLOB wrap             │
 │      │                                                                   │
 │      ├── sw_crypto.*     Step 01 software AES-GCM / HMAC                 │
 │      └── caam_crypto.*   Step 02 CAAM (JR1 @ 0x30902000)                 │
-│             └── caam_imx8mp_jr.*   descriptors + DMA in DDR @ 0x80080000│
+│             ├── caam_imx8mp_jr.*   descriptors + DMA in DDR @ 0x80080000│
+│             └── caam_blob.*        OTPMK/JDKEK wrap (blob header v2)    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -103,11 +104,11 @@ Linux
 |-------|---------|----------------|
 | Entry / RTOS | `main.c` | Board init, FreeRTOS task, RPMsg loop |
 | Protocol | `m7_crypto_protocol.h`, `crypto_service.c` | Parse headers, status codes, key slots |
-| Soft blobs | `crypto_service.c` | Prototype wrap (AES-CTR + HMAC) for export/load |
-| Engine switch | `M7_USE_CAAM` in `armgcc/config.cmake` | Route GCM/HMAC to `sw_*` or `caam_*` |
+| Soft blobs | `crypto_service.c` (`M7_USE_CAAM=0`) | Step 01 software wrap (blob v1) |
+| Engine switch | `M7_USE_CAAM` in `armgcc/config.cmake` | Route GCM/HMAC/wrap to `sw_*` or `caam_*` |
 | Software crypto | `sw_crypto.*` | Step 01 reference |
 | CAAM crypto | `caam_crypto.*`, `caam_imx8mp_jr.*` | Step 02 JR1 + descriptors |
-| Black blobs | `caam_blob.*` | Stub until GCM path is solid on silicon |
+| Black blobs | `caam_blob.*` | CAAM BLOB encap/decap (blob header v2) |
 
 `crypto_service_handle()` is the only place that turns a command into crypto.
 The RPMsg task never “knows” AES; it only shuttles buffers.
@@ -136,8 +137,8 @@ Menu map:
 | 1 | Ping |
 | 2 | Set / open RPMsg device path |
 | 3 | Store AES-128 key |
-| 4 | Export AES soft blob → file |
-| 5 | Load AES soft blob ← file |
+| 4 | Export AES blob → file |
+| 5 | Load AES blob ← file |
 | 6 | Encrypt AES-GCM |
 | 7 | Decrypt AES-GCM (can reuse last ciphertext) |
 | 8–11 | HMAC store / export / load / sign |
@@ -188,7 +189,7 @@ On M7, with `M7_USE_CAAM=1` and `M7_CAAM_HW=1`:
 1. ATF starts JR1 (`JRSTART` bit 1) and locks `JR1MID = LDID|6`. Page 0 is
    unreachable from the M7, so the ring must already be started.
 2. First `ping` programs JR1 rings in reserved DDR (`0x80080000`) and runs
-   NIST AES-128-ECB, AES-GCM TC2, and RFC 4231 HMAC-SHA256 KATs.
+   NIST AES-128-ECB, AES-GCM TC2, RFC 4231 HMAC-SHA256, and CAAM BLOB KATs.
 3. Later GCM / HMAC commands use the same single-job descriptors.
 
 We intentionally **do not** use MCUX `fsl_caam` + RT117x `CAAM_Type` (wrong JR
@@ -198,12 +199,15 @@ spacing). See [step-02-caam.md](step-02-caam.md).
 
 ## 8. Soft blob vs black blob
 
-| Kind | Where | Purpose today |
-|------|--------|----------------|
-| Soft blob | M7 wrap key in `crypto_service.c` | Export/load keys across M7 restart for demos |
-| Black blob | CAAM (future) | Hardware-bound wrap; replace soft format later |
+| Kind | Where | Purpose |
+|------|--------|---------|
+| Soft blob (v1) | `crypto_service.c` when `M7_USE_CAAM=0` | Software AES-CBC + HMAC wrap |
+| Black blob (v2) | `caam_blob.c` on JR1 | CAAM BLOB protocol; wrap key is OTPMK/JDKEK |
 
-Soft blobs are a **prototype**. Do not treat them as production key protection.
+CAAM name is **red blob** (plaintext in, blob out). This project calls it
+black blob because the wrap is hardware-bound, not a software constant.
+The blob will not unwrap on another chip. Keys still sit in M7 RAM after
+load — they are not kept as in-register CAAM black keys.
 
 ---
 
@@ -214,10 +218,12 @@ main.c                         boot → RPMsg → command loop
 crypto_service.c               protocol state machine
 m7_crypto_protocol.h           magic, cmds, status, sizes
 sw_crypto.c / caam_crypto.c    engines behind the same API
+caam_blob.c                    CAAM BLOB wrap / unwrap
 caam_imx8mp_jr.c               i.MX8MP job-ring driver
 linux/imx8mp-disable-caam.dtsi include into imx8mp-evk-rpmsg.dts
 crypto_rpmsg/linux/            host client (menu + CLI)
 crypto_rpmsg/doc/PROTOCOL.md   on-the-wire bytes
+m7_crypto_protocol.h           shared by firmware and the Linux client
 docs/step-0x-*.md              milestone checklists
 ```
 
@@ -228,7 +234,7 @@ docs/step-0x-*.md              milestone checklists
 1. Boot flow: U-Boot `bootaux` → Linux attach → `modprobe rpmsg_tty`.
 2. Menu **1 Ping** — proves endpoint + protocol header.
 3. Menu **3 Store AES** then **6 Encrypt** / **7 Decrypt** — key slot + GCM.
-4. Menu **4 / 5** — soft blob round-trip across M7 reset (same blob file).
+4. Menu **4 / 5** — CAAM blob round-trip across M7 reset (same blob file).
 5. Read `crypto_service.c` `ENCRYPT_GCM` case alongside PROTOCOL.md.
 6. Read `caam_imx8mp_jr.c` enqueue/dequeue; compare to Linux `jr.c` mentally.
 7. Confirm engine via **ping** payload: `OK-CAAM` / `OK-SW` / `FAIL-*`

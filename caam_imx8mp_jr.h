@@ -14,9 +14,8 @@
 extern "C" {
 #endif
 
-#define CAAM8_ERR_PROBE   (-10) /* MMIO looks dead (0 / 0xffffffff) */
-#define CAAM8_ERR_LPTR    (-11) /* MCFGR LONG_PTR stuck; need 64-bit desc */
-#define CAAM8_ERR_IRSA    (-13) /* input ring slots avail == 0 */
+#define CAAM8_ERR_PROBE   (-10)
+#define CAAM8_ERR_IRSA    (-13)
 #define CAAM8_ERR_ARG     (-1)
 #define CAAM8_ERR_TIMEOUT (-2)
 #define CAAM8_ERR_STATUS  (-3)
@@ -30,19 +29,11 @@ const char *caam8_probe_detail(void);
 int caam8_jr_setup_rings(void);
 int caam8_jr_recycle(void);
 
-int caam8_jr0_init(void);
-
-/*
- * Submit descriptor in DMA memory and wait.
- * Returns 0 on success; on failure see caam8_last_jr_status().
- */
 int caam8_jr0_run(uint32_t *desc, uint32_t *jr_status);
-uint32_t caam8_last_jr_status(void);
 
 uint8_t *caam8_dma_scratch(void);
 size_t caam8_dma_scratch_size(void);
 uint32_t *caam8_dma_desc(void);
-size_t caam8_dma_desc_words(void);
 
 #ifdef __cplusplus
 }

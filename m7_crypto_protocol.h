@@ -21,22 +21,23 @@
 #define M7CR_HMAC_LEN           (32u)
 #define M7CR_HMAC_KEY_MAX       (64u)
 
-/* Soft blob: temporary wrap until CAAM black blob is wired in. */
-#define M7CR_BLOB_MAGIC         (0x424C4F42u) /* 'BLOB' */
-#define M7CR_BLOB_VERSION       (1u)
-#define M7CR_BLOB_TYPE_AES128   (1u)
-#define M7CR_BLOB_TYPE_HMAC     (2u)
+/* Blob header. v1 = software wrap (M7_USE_CAAM=0). v2 = CAAM BLOB. */
+#define M7CR_BLOB_MAGIC          (0x424C4F42u) /* 'BLOB' */
+#define M7CR_BLOB_VERSION_SOFT   (1u)
+#define M7CR_BLOB_VERSION_CAAM   (2u)
+#define M7CR_BLOB_TYPE_AES128    (1u)
+#define M7CR_BLOB_TYPE_HMAC      (2u)
 
 enum m7cr_cmd
 {
-    M7CR_CMD_STORE_AES_KEY   = 1,  /* in: 16B key; out: soft blob */
-    M7CR_CMD_LOAD_AES_BLOB   = 2,  /* in: soft blob; out: empty */
-    M7CR_CMD_EXPORT_AES_BLOB = 3,  /* in: empty; out: soft blob */
+    M7CR_CMD_STORE_AES_KEY   = 1,  /* in: 16B key; out: blob */
+    M7CR_CMD_LOAD_AES_BLOB   = 2,  /* in: blob; out: empty */
+    M7CR_CMD_EXPORT_AES_BLOB = 3,  /* in: empty; out: blob */
     M7CR_CMD_ENCRYPT_GCM     = 4,  /* in: gcm_req; out: ct||tag */
     M7CR_CMD_DECRYPT_GCM     = 5,  /* in: gcm_dec; out: pt */
-    M7CR_CMD_STORE_HMAC_KEY  = 6,  /* in: u16 key_len + key; out: soft blob */
-    M7CR_CMD_LOAD_HMAC_BLOB  = 7,  /* in: soft blob; out: empty */
-    M7CR_CMD_EXPORT_HMAC_BLOB= 8,  /* in: empty; out: soft blob */
+    M7CR_CMD_STORE_HMAC_KEY  = 6,  /* in: u16 key_len + key; out: blob */
+    M7CR_CMD_LOAD_HMAC_BLOB  = 7,  /* in: blob; out: empty */
+    M7CR_CMD_EXPORT_HMAC_BLOB= 8,  /* in: empty; out: blob */
     M7CR_CMD_SIGN_HMAC       = 9,  /* in: data; out: 32B mac */
     M7CR_CMD_PING            = 10, /* in: empty; out: "OK-SW" | "OK-CAAM" | "OK-CAAM-FAIL" */
 };
@@ -101,8 +102,9 @@ typedef struct m7cr_blob_hdr
     uint16_t type;
     uint16_t key_len;
     uint16_t reserved;
-    uint8_t  wrap_iv[16];
-    /* followed by: wrapped_key[key_len rounded to 16] || mac[32] */
+    uint8_t  wrap_iv[16]; /* v1: CBC IV. v2: CAAM key modifier. */
+    /* v1: padded CBC ciphertext || HMAC-SHA256.
+     * v2: CAAM blob (key_len + 48). */
 } m7cr_blob_hdr_t;
 #pragma pack(pop)
 

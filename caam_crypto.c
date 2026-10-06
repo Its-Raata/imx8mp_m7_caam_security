@@ -4,7 +4,7 @@
  * CAAM crypto backend for i.MX8MP (M7).
  *
  * M7_CAAM_HW=0  — scaffold returns errors (build/wiring check).
- * M7_CAAM_HW=1  — JR1 driver + AES-GCM / HMAC-SHA256 (KATs on first ping).
+ * M7_CAAM_HW=1  — JR1 driver + AES-GCM / HMAC / BLOB (KATs on first ping).
  */
 #include "caam_crypto.h"
 
@@ -12,6 +12,7 @@
 #include <string.h>
 
 #if defined(M7_CAAM_HW) && (M7_CAAM_HW)
+#include "caam_blob.h"
 #include "caam_imx8mp_jr.h"
 #include "caam_imx8mp_regs.h"
 #endif
@@ -20,17 +21,12 @@ static uint8_t s_ready;
 static char s_fail_buf[40];
 static const char *s_fail_tag = "FAIL";
 
-const char *caam_crypto_fail_tag(void)
-{
-    return s_fail_tag;
-}
-
 static void set_fail(const char *tag)
 {
     s_fail_tag = tag;
 }
 
-const char *caam_crypto_probe_tag(void)
+static const char *caam_crypto_probe_tag(void)
 {
 #if defined(M7_CAAM_HW) && (M7_CAAM_HW)
     if (caam8_probe_readonly() == 0)
@@ -68,7 +64,7 @@ const char *caam_crypto_ping_step(void)
         return "OK-CAAM";
     }
 
-    /* One ping: clocks → probe → rings → ECB / GCM / HMAC KATs. */
+    /* One ping: clocks → probe → rings → ECB / GCM / HMAC / BLOB KATs. */
     caam8_clocks_on();
     s_fail_tag = caam_crypto_probe_tag();
     if (strncmp(s_fail_tag, "SEE:", 4) != 0)
@@ -104,6 +100,16 @@ const char *caam_crypto_ping_step(void)
     if (caam8_selftest_hmac() != 0)
     {
         set_fail("FAIL-HMAC");
+        return s_fail_tag;
+    }
+    if (caam8_jr_recycle() != 0)
+    {
+        set_fail("FAIL-IRSA");
+        return s_fail_tag;
+    }
+    if (caam_blob_selftest() != 0)
+    {
+        set_fail("FAIL-BLOB");
         return s_fail_tag;
     }
 
@@ -433,19 +439,6 @@ static int caam8_selftest_hmac(void)
 }
 
 #endif /* M7_CAAM_HW */
-
-int caam_crypto_init(void)
-{
-    /* Bring-up is deferred to the first PING (keeps RPMsg up if CAAM is dead). */
-    s_ready    = 0;
-    s_fail_tag = "FAIL";
-#if defined(M7_CAAM_HW) && (M7_CAAM_HW)
-    return 0;
-#else
-    set_fail("FAIL-NOHW");
-    return -1;
-#endif
-}
 
 int caam_aes128_gcm_encrypt(const uint8_t key[16],
                             const uint8_t *iv,
