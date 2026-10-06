@@ -1,7 +1,12 @@
 /*
  * Copyright (c) 2026 Raata <its.raata@gmail.com>
  *
- * CAAM black-blob wrap/unwrap for exportable keys (Step 02).
+ * CAAM BLOB protocol on JR1 — hardware-bound wrap of a plaintext key.
+ *
+ * CAAM name: red blob (general memory, 16-byte key modifier).
+ * This project calls it "black blob": the wrap key is OTPMK/JDKEK, not
+ * the Step-01 software constant. Same STORE/LOAD/EXPORT commands;
+ * blob bytes are device-bound.
  */
 #ifndef CAAM_BLOB_H_
 #define CAAM_BLOB_H_
@@ -13,21 +18,23 @@
 extern "C" {
 #endif
 
-/* Max bytes of CAAM blob we accept on the wire (fits RPMsg payload). */
-#define CAAM_BLOB_MAX_BYTES (400u)
+/* Encrypted key blob (32) + MAC (16). Output size = key_len + this. */
+#define CAAM_BLOB_OVERHEAD (48u)
 
-/*
- * Wrap plaintext key material into a CAAM black blob.
- * out_len: in = capacity, out = bytes written.
- * Returns 0 on success.
- */
-int caam_black_blob_wrap(const uint8_t *key, size_t key_len, uint8_t *out, uint32_t *out_len);
+int caam_black_blob_wrap(const uint8_t modifier[16],
+                         const uint8_t *key,
+                         size_t key_len,
+                         uint8_t *out,
+                         uint32_t *out_len);
 
-/*
- * Unwrap CAAM black blob into key buffer.
- * key_len: in = capacity, out = bytes written.
- */
-int caam_black_blob_unwrap(const uint8_t *blob, uint32_t blob_len, uint8_t *key, uint16_t *key_len);
+int caam_black_blob_unwrap(const uint8_t modifier[16],
+                           const uint8_t *blob,
+                           uint32_t blob_len,
+                           uint8_t *key,
+                           size_t key_len);
+
+/* Wrap then unwrap a 16-byte pattern. 0 = match. */
+int caam_blob_selftest(void);
 
 #ifdef __cplusplus
 }

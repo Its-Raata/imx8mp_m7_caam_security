@@ -1,114 +1,173 @@
 /*
  * Copyright (c) 2026 Raata <its.raata@gmail.com>
  *
- * CAAM black blob backend (Step 02).
- * Hardware path requires M7_CAAM_HW + fsl_caam (see docs/step-02-caam.md).
+ * CAAM BLOB encapsulate / decapsulate on JR1.
+ *
+ * Descriptor matches MCUX CAAM_RedBlob_Encapsule / Decapsule (general
+ * memory) and u-boot inline_cnstr_jobdesc_blob_encap (RED_KEY):
+ *   KEY class-2 (16-byte modifier)
+ *   SEQ IN / SEQ OUT
+ *   OPERATION ENCAP or DECAP | BLOB
  */
 #include "caam_blob.h"
 
 #include <string.h>
 
 #if defined(M7_CAAM_HW) && (M7_CAAM_HW)
-#include "fsl_caam.h"
-#include "caam_imx8mp_device.h"
+#include "caam_imx8mp_jr.h"
+#include "caam_imx8mp_regs.h"
 
-#define CAAM_KEYMOD_SIZE (16u)
-/* SEC4 black blob overhead is typically ~32–48 bytes beyond plaintext. */
-#define CAAM_BLOB_OVERHEAD (48u)
+static size_t blob_put_ptr(uint32_t *desc, size_t i, const void *p)
+{
+    desc[i++] = (uint32_t)(uintptr_t)p;
+    return i;
+}
 
-static caam_handle_t s_blob_handle = {.jobRing = kCAAM_JobRing0};
+static int blob_job(int encap,
+                    const uint8_t modifier[16],
+                    const uint8_t *in,
+                    uint32_t in_len,
+                    uint8_t *out,
+                    uint32_t out_len)
+{
+    uint32_t *desc = caam8_dma_desc();
+    uint8_t *scr   = caam8_dma_scratch();
+    uint32_t st    = 0;
+    uint8_t *modb;
+    uint8_t *inb;
+    uint8_t *outb;
+    size_t i;
+
+    if ((desc == NULL) || (scr == NULL) || (modifier == NULL) || (in == NULL) || (out == NULL))
+    {
+        return -1;
+    }
+    if ((in_len == 0u) || (out_len == 0u) || ((16u + in_len + out_len) > caam8_dma_scratch_size()))
+    {
+        return -1;
+    }
+
+    if (caam8_jr_recycle() != 0)
+    {
+        return -1;
+    }
+
+    modb = scr;
+    inb  = scr + 16u;
+    outb = inb + in_len;
+
+    (void)memcpy(modb, modifier, 16u);
+    (void)memcpy(inb, in, in_len);
+    (void)memset(outb, 0xA5, out_len);
+
+    i         = 1u;
+    desc[i++] = CAAM8_CMD_KEY_C2 | 16u;
+    i         = blob_put_ptr(desc, i, modb);
+    desc[i++] = CAAM8_CMD_SEQ_IN | in_len;
+    i         = blob_put_ptr(desc, i, inb);
+    desc[i++] = CAAM8_CMD_SEQ_OUT | out_len;
+    i         = blob_put_ptr(desc, i, outb);
+    desc[i++] = encap ? CAAM8_CMD_OP_BLOB_ENCAP : CAAM8_CMD_OP_BLOB_DECAP;
+    desc[0]   = CAAM8_CMD_JOB_HDR | (uint32_t)i;
+
+    if (caam8_jr0_run(desc, &st) != 0)
+    {
+        return -2;
+    }
+    (void)memcpy(out, outb, out_len);
+    return 0;
+}
 #endif
 
-int caam_black_blob_wrap(const uint8_t *key, size_t key_len, uint8_t *out, uint32_t *out_len)
+int caam_black_blob_wrap(const uint8_t modifier[16],
+                         const uint8_t *key,
+                         size_t key_len,
+                         uint8_t *out,
+                         uint32_t *out_len)
 {
-#if defined(M7_CAAM_HW) && (M7_CAAM_HW)
-    uint8_t keymod[CAAM_KEYMOD_SIZE];
-    uint8_t raw_blob[CAAM_BLOB_MAX_BYTES];
-    uint32_t need;
-    size_t i;
-    status_t st;
-
-    if ((key == NULL) || (out == NULL) || (out_len == NULL) || (key_len == 0u) || (key_len > 64u))
-    {
-        return -1;
-    }
-
-    need = CAAM_KEYMOD_SIZE + (uint32_t)key_len + CAAM_BLOB_OVERHEAD;
-    if (need > *out_len || need > CAAM_BLOB_MAX_BYTES)
-    {
-        return -1;
-    }
-
-    for (i = 0; i < CAAM_KEYMOD_SIZE; i++)
-    {
-        keymod[i] = (uint8_t)(0xA5u ^ (uint8_t)i ^ (uint8_t)key_len);
-    }
-
-    memset(raw_blob, 0, sizeof(raw_blob));
-    st = CAAM_BlackBlob_Encapsule(CAAM, &s_blob_handle, keymod, CAAM_KEYMOD_SIZE, key, key_len, raw_blob,
-                                  kCAAM_Descriptor_Type_Kek_Kek);
-    if (st != kStatus_Success)
-    {
-        return -1;
-    }
-
-    memcpy(out, keymod, CAAM_KEYMOD_SIZE);
-    memcpy(out + CAAM_KEYMOD_SIZE, raw_blob, (size_t)key_len + CAAM_BLOB_OVERHEAD);
-    *out_len = need;
-    return 0;
-#else
+#if !(defined(M7_CAAM_HW) && (M7_CAAM_HW))
+    (void)modifier;
     (void)key;
     (void)key_len;
     (void)out;
-    if (out_len != NULL)
-    {
-        *out_len = 0;
-    }
+    (void)out_len;
     return -1;
+#else
+    uint32_t need;
+
+    if ((key_len == 0u) || (key_len > 64u) || (out_len == NULL))
+    {
+        return -1;
+    }
+    need = (uint32_t)key_len + CAAM_BLOB_OVERHEAD;
+    if (*out_len < need)
+    {
+        return -1;
+    }
+    if (blob_job(1, modifier, key, (uint32_t)key_len, out, need) != 0)
+    {
+        return -1;
+    }
+    *out_len = need;
+    return 0;
 #endif
 }
 
-int caam_black_blob_unwrap(const uint8_t *blob, uint32_t blob_len, uint8_t *key, uint16_t *key_len)
+int caam_black_blob_unwrap(const uint8_t modifier[16],
+                           const uint8_t *blob,
+                           uint32_t blob_len,
+                           uint8_t *key,
+                           size_t key_len)
 {
-#if defined(M7_CAAM_HW) && (M7_CAAM_HW)
-    uint8_t plain[64];
-    uint16_t expect_len;
-    status_t st;
-
-    if ((blob == NULL) || (key == NULL) || (key_len == NULL) || (blob_len <= CAAM_KEYMOD_SIZE))
-    {
-        return -1;
-    }
-
-    expect_len = *key_len;
-    if ((expect_len == 0u) || (expect_len > 64u))
-    {
-        expect_len = 16u;
-    }
-    if (blob_len < CAAM_KEYMOD_SIZE + expect_len + CAAM_BLOB_OVERHEAD)
-    {
-        return -1;
-    }
-
-    memset(plain, 0, sizeof(plain));
-    st = CAAM_BlackBlob_Decapsule(CAAM, &s_blob_handle, blob, CAAM_KEYMOD_SIZE, blob + CAAM_KEYMOD_SIZE, plain,
-                                  expect_len, kCAAM_Descriptor_Type_Kek_Kek);
-    if (st != kStatus_Success)
-    {
-        return -1;
-    }
-    memcpy(key, plain, expect_len);
-    *key_len = expect_len;
-    memset(plain, 0, sizeof(plain));
-    return 0;
-#else
+#if !(defined(M7_CAAM_HW) && (M7_CAAM_HW))
+    (void)modifier;
     (void)blob;
     (void)blob_len;
     (void)key;
-    if (key_len != NULL)
-    {
-        *key_len = 0;
-    }
+    (void)key_len;
     return -1;
+#else
+    uint32_t need;
+
+    if ((key_len == 0u) || (key_len > 64u))
+    {
+        return -1;
+    }
+    need = (uint32_t)key_len + CAAM_BLOB_OVERHEAD;
+    if (blob_len != need)
+    {
+        return -1;
+    }
+    return blob_job(0, modifier, blob, need, key, (uint32_t)key_len);
+#endif
+}
+
+int caam_blob_selftest(void)
+{
+#if !(defined(M7_CAAM_HW) && (M7_CAAM_HW))
+    return -1;
+#else
+    static const uint8_t s_key[16] = {
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    static const uint8_t s_mod[16] = {
+        0x4d, 0x37, 0x43, 0x52, 0x42, 0x4c, 0x4f, 0x42, 0x4b, 0x41, 0x54, 0x30, 0x00, 0x00, 0x00, 0x01};
+    uint8_t blob[16u + CAAM_BLOB_OVERHEAD];
+    uint8_t plain[16];
+    uint32_t blen = (uint32_t)sizeof(blob);
+
+    if (caam_black_blob_wrap(s_mod, s_key, sizeof(s_key), blob, &blen) != 0)
+    {
+        return -1;
+    }
+    (void)memset(plain, 0, sizeof(plain));
+    if (caam_black_blob_unwrap(s_mod, blob, blen, plain, sizeof(plain)) != 0)
+    {
+        return -1;
+    }
+    if (memcmp(plain, s_key, sizeof(s_key)) != 0)
+    {
+        return -1;
+    }
+    return 0;
 #endif
 }

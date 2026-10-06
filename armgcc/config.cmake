@@ -41,15 +41,19 @@ set(CONFIG_DEVICE_ID MIMX8ML8xxxLZ)
 set(CONFIG_FPU SP_FPU)
 set(CONFIG_DSP NO_DSP)
 
-# Step 02: set to 1 to route AES-GCM/HMAC through caam_crypto (needs M7_CAAM_HW for silicon).
-# Default 0 keeps Step 01 software crypto behavior.
+# Step 02 CAAM (default ON — set to 0 for software-only crypto).
 if(NOT DEFINED M7_USE_CAAM)
-    set(M7_USE_CAAM 0)
+    set(M7_USE_CAAM 1)
 endif()
 add_compile_definitions(M7_USE_CAAM=${M7_USE_CAAM})
-# Hardware bring-up (fsl_caam + CAAM_Type for MIMX8ML8): set M7_CAAM_HW=1 when ready.
+# Real JR1 + descriptors + KATs on first ping.
 if(NOT DEFINED M7_CAAM_HW)
-    set(M7_CAAM_HW 0)
+    set(M7_CAAM_HW 1)
 endif()
 add_compile_definitions(M7_CAAM_HW=${M7_CAAM_HW})
+# 0 = never MMIO CAAM (ping → NO-TOUCH). 1 = bring JR1 up on first ping.
+if(NOT DEFINED M7_CAAM_TOUCH)
+    set(M7_CAAM_TOUCH 1)
+endif()
+add_compile_definitions(M7_CAAM_TOUCH=${M7_CAAM_TOUCH})
 

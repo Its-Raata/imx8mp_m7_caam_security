@@ -1,13 +1,41 @@
+# Nested clones / scratch
 __repo__/
 build/
+
+# MCUXpresso / armgcc build outputs
 armgcc/debug/
 armgcc/release/
 armgcc/ddr_debug/
 armgcc/ddr_release/
 armgcc/flash_debug/
 armgcc/flash_release/
+
+# CMake generated (in-tree configure under armgcc/)
+armgcc/CMakeCache.txt
+armgcc/CMakeFiles/
+armgcc/Makefile
+armgcc/cmake_install.cmake
+armgcc/compile_commands.json
+armgcc/CMakeScripts/
+armgcc/*.cmake.user
+armgcc/build_log.txt
+armgcc/output.map
+
+# Objects / binaries
 *.elf
 *.bin
 *.o
+*.obj
+*.a
 *.map
 *.d
+*.hex
+*.axf
+*.out
+
+# Editor / IDE noise
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

@@ -158,6 +158,7 @@ void BOARD_RdcInit(void)
 {
     /* Move M7 core to specific RDC domain 1 */
     rdc_domain_assignment_t assignment = {0};
+    rdc_periph_access_config_t periphConfig;
     uint8_t domainId                   = 0U;
 
     domainId = RDC_GetCurrentMasterDomainId(RDC);
@@ -166,6 +167,13 @@ void BOARD_RdcInit(void)
     {
         assignment.domainId = BOARD_DOMAIN_ID;
         RDC_SetMasterDomainAssignment(RDC, kRDC_Master_M7, &assignment);
+
+        /* Allow CAAM register access from A53 (dom0) and M7 (dom1). */
+        RDC_GetDefaultPeriphAccessConfig(&periphConfig);
+        periphConfig.periph = kRDC_Periph_CAAM;
+        periphConfig.policy =
+            (uint16_t)(RDC_ACCESS_POLICY(0U, kRDC_ReadWrite) | RDC_ACCESS_POLICY(1U, kRDC_ReadWrite));
+        RDC_SetPeriphAccessConfig(RDC, &periphConfig);
     }
 
     /*
@@ -178,6 +186,7 @@ void BOARD_RdcInit(void)
     CLOCK_EnableClock(kCLOCK_Ipmux1);
     CLOCK_EnableClock(kCLOCK_Ipmux2);
     CLOCK_EnableClock(kCLOCK_Ipmux3);
+    CLOCK_EnableClock(kCLOCK_Sec_Debug);
 
 #if defined(FLASH_TARGET)
     CLOCK_EnableClock(kCLOCK_Qspi);

@@ -1,0 +1,34 @@
+# Apply on tree that already has 0001–0004.
+#
+# AIPSTZ / interconnect master IDs (NXP imx8mp-aipstz.h):
+#   0 EDMA, 1 A53, 3 SDMA, 5 HIFI4, 6 Cortex-M7
+# SRM “all others = 0” is not the M7 inbound ID. Locking JR1 at 0
+# (0004) survived OP-TEE and M7 still saw FAIL-P:00000000.
+# JR1 = LDID | 6. Do not change JR2.
+#
+#   patch -p1 < 0005-imx8m-caam-JR1-MID6-M7.patch
+--- a/plat/imx/imx8m/imx8m_caam.c
++++ b/plat/imx/imx8m/imx8m_caam.c
+@@ -19,6 +19,7 @@
+ #define CAAM_JR_JRCR	0x6c
+ #define CAAM_JRSTART_JR1	U(2)
+ #define CAAM_JR_LDID		U(0x80000000)
++#define CAAM_M7_MID		U(6)
+ 
+ void imx8m_caam_init(void)
+ {
+@@ -39,14 +40,14 @@ void imx8m_caam_init(void)
+ 
+ 	/*
+ 	 * Path B: JR1 owned by M7 (AIPSTZ master ID 6). Leave JR2 at
+ 	 * CAAM_NS_MID (A53 = 1) so OP-TEE / U-Boot keep a ring.
+ 	 */
+ 	/* Stop JR1 first - DID write is ignored while the ring is started. */
+ 	mmio_write_32(CAAM_JR1_BASE + CAAM_JR_JRCR, 1);
+ 	mmio_write_32(CAAM_JRSTARTR,
+ 		      mmio_read_32(CAAM_JRSTARTR) & ~CAAM_JRSTART_JR1);
+-	mmio_write_32(CAAM_JR1MID, CAAM_JR_LDID);
++	mmio_write_32(CAAM_JR1MID, CAAM_JR_LDID | CAAM_M7_MID);
+ 	mmio_write_32(CAAM_JR2MID, CAAM_NS_MID);
+ 	/* Restart JR1 so the JR page is accessible (stop mode hides IRSR). */
+ 	mmio_write_32(CAAM_JRSTARTR,

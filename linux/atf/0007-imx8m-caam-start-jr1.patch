@@ -1,0 +1,109 @@
+diff --git a/plat/imx/imx8m/imx8m_caam.c b/plat/imx/imx8m/imx8m_caam.c
+index 646aebbab..580b4c7ca 100644
+--- a/plat/imx/imx8m/imx8m_caam.c
++++ b/plat/imx/imx8m/imx8m_caam.c
+@@ -14,6 +14,65 @@
+ #endif
+ 
+ #define HAB_JR0_DID	U(0x8011)
++#define CAAM_JRSTARTR	(IMX_CAAM_BASE + 0x5c)
++#define CAAM_JR1_BASE	(IMX_CAAM_BASE + 0x2000)
++#define CAAM_JR_JRCR	0x6c
++#define CAAM_JRSTART_JR1	U(2)
++#define CAAM_JR_LDID		U(0x80000000)
++#define CAAM_M7_MID		U(6)
++#define CAAM_JR_JRINT		0x4c
++#define JRINT_HALT_COMPLETE	U(0x8)
++
++/*
++ * Hand JR1 to the M7 and make sure it is actually started.
++ *
++ * JRSTART gates job execution once CAAM virtualization is on: an unstarted
++ * ring still accepts jobs and still reports completions, but the DECO never
++ * reads the descriptor and never writes the output ring, which looks exactly
++ * like a broken driver. The previous sequence left JRSTART at 0 because the
++ * JRCR reset was never waited for, so the start bit write was dropped.
++ */
++static void imx8m_caam_jr1_to_m7(void)
++{
++	unsigned int i;
++
++	/* A DID write is ignored while the ring is started, so stop it. */
++	mmio_write_32(CAAM_JR1_BASE + CAAM_JR_JRCR, 1);
++	for (i = 0U; i < 10000U; i++) {
++		if ((mmio_read_32(CAAM_JR1_BASE + CAAM_JR_JRCR) & 1U) == 0U) {
++			break;
++		}
++	}
++	/* JRCR leaves HALT_COMPLETE latched; write it back to resume. */
++	mmio_write_32(CAAM_JR1_BASE + CAAM_JR_JRINT, JRINT_HALT_COMPLETE);
++
++	mmio_write_32(CAAM_JRSTARTR,
++		      mmio_read_32(CAAM_JRSTARTR) & ~CAAM_JRSTART_JR1);
++	mmio_write_32(CAAM_JR1MID, CAAM_JR_LDID | CAAM_M7_MID);
++	mmio_write_32(CAAM_JR2MID, CAAM_NS_MID);
++
++	/* Start every ring, as Linux does, so HAB and OP-TEE keep theirs. */
++	mmio_write_32(CAAM_JRSTARTR, CAAM_JRSTART_ALL);
++
++	if ((mmio_read_32(CAAM_JRSTARTR) & CAAM_JRSTART_JR1) == 0U) {
++		/*
++		 * JRSTART has no effect unless virtualization is enabled, and
++		 * on this part it is not set by POR. Linux only reads SCFGR
++		 * and expects the boot stage to have enabled it.
++		 */
++		mmio_write_32(CAAM_SCFGR,
++			      mmio_read_32(CAAM_SCFGR) | SCFGR_VIRT_EN);
++		mmio_write_32(CAAM_JRSTARTR, CAAM_JRSTART_ALL);
++	}
++
++	NOTICE("CAAM JR1DID=0x%x JR2DID=0x%x JRSTART=0x%x\n",
++	       mmio_read_32(CAAM_JR1MID), mmio_read_32(CAAM_JR2MID),
++	       mmio_read_32(CAAM_JRSTARTR));
++	NOTICE("CAAM MCFGR=0x%x SCFGR=0x%x CTPR=0x%x DECO0MID=0x%x DAR=0x%x\n",
++	       mmio_read_32(CAAM_MCFGR), mmio_read_32(CAAM_SCFGR),
++	       mmio_read_32(CAAM_CTPR_MS), mmio_read_32(CAAM_DECO0MID),
++	       mmio_read_32(CAAM_DAR));
++}
+ 
+ void imx8m_caam_init(void)
+ {
+@@ -33,8 +92,11 @@ void imx8m_caam_init(void)
+ 		mmio_write_32(CAAM_JR0MID, CAAM_NS_MID);
+ 	}
+ 
+-	mmio_write_32(CAAM_JR1MID, CAAM_NS_MID);
+-	mmio_write_32(CAAM_JR2MID, CAAM_NS_MID);
++	/*
++	 * Path B: JR1 owned by M7 (AIPSTZ master ID 6). Leave JR2 at
++	 * CAAM_NS_MID (A53 = 1) so OP-TEE / U-Boot keep a ring.
++	 */
++	imx8m_caam_jr1_to_m7();
+ 
+ 	/* Alloc partition 0 writing SMPO and SMAGs */
+ 	mmio_write_32(SM_P0_PERM, 0xff);
+diff --git a/plat/imx/imx8m/include/imx8m_caam.h b/plat/imx/imx8m/include/imx8m_caam.h
+index 84725b195..0c98e5f85 100644
+--- a/plat/imx/imx8m/include/imx8m_caam.h
++++ b/plat/imx/imx8m/include/imx8m_caam.h
+@@ -11,11 +11,20 @@
+ 
+ #include <platform_def.h>
+ 
++#define CAAM_MCFGR		(IMX_CAAM_BASE + 0x04)
++#define CAAM_SCFGR		(IMX_CAAM_BASE + 0x0c)
+ #define CAAM_JR0MID		(IMX_CAAM_BASE + 0x10)
+ #define CAAM_JR1MID		(IMX_CAAM_BASE + 0x18)
+ #define CAAM_JR2MID		(IMX_CAAM_BASE + 0x20)
++#define CAAM_DECO0MID		(IMX_CAAM_BASE + 0xa0)
++#define CAAM_DAR		(IMX_CAAM_BASE + 0x120)
++#define CAAM_CTPR_MS		(IMX_CAAM_BASE + 0xfa8)
+ #define CAAM_NS_MID		(0x1)
+ 
++/* An unstarted ring accepts jobs but never executes them. */
++#define CAAM_JRSTART_ALL	U(0xf)
++#define SCFGR_VIRT_EN		U(0x00008000)
++
+ #define JR0_BASE		(IMX_CAAM_BASE + 0x1000)
+ 
+ #define SM_P0_PERM		(JR0_BASE + 0xa04)

@@ -1,91 +1,78 @@
-# Step 02 — CAAM crypto engine
+# Step 02 — CAAM crypto engine + black blobs
 
 **Author:** Raata \<its.raata@gmail.com\>  
-**Status:** In progress (API + build switch landed; hardware bring-up next)  
-**Branch:** `step/02-caam`  
-**Tag:** `step-02` (when silicon path works)
+**Status:** Done  
+**Tag:** `step-02`  
+**Branch:** `step/02-caam`
 
 ## Goal
 
-Same RPMsg protocol and Linux client as Step 01. AES-GCM / HMAC (and later
-black blobs) run on **CAAM** instead of `sw_crypto.c`.
+Same RPMsg protocol and Linux client as Step 01. AES-GCM / HMAC run on
+**CAAM JR1**. STORE/LOAD/EXPORT wrap keys with the **CAAM BLOB** protocol
+(OTPMK / JDKEK) instead of the Step-01 software wrap key.
 
-## What landed in this branch so far
+## What landed
 
 | Item | Status |
 |------|--------|
-| `caam_crypto.c` / `.h` — GCM + HMAC API matching `sw_*` | Done (scaffold) |
-| `caam_blob.c` / `.h` — black blob API | Done (scaffold) |
-| `crypto_service.c` — `M7_USE_CAAM` engine switch | Done |
-| CMake flags `M7_USE_CAAM` / `M7_CAAM_HW` (default **0**) | Done |
-| Default build = Step 01 behavior (software crypto) | Done |
-| Link `fsl_caam` + `CAAM_Type` for MIMX8ML8 | **Next** |
-| Reserve Linux job ring for M7 | **Next** (see below) |
-| EVK parity test with client | After HW |
+| `caam_crypto.c` — GCM + HMAC + NIST/RFC KATs on first ping | Done |
+| `caam_imx8mp_jr.*` — i.MX8MP JR1 poll-mode driver | Done |
+| `caam_blob.c` — CAAM red-blob encap/decap (project: black blob) | Done |
+| ATF `0005` + `0007` — JR1 MID=6, ring started | Done |
+| U-Boot `mcu_rdc` CAAM → DID1 | Done |
+| Linux DTB disables `&crypto` / job rings | Done |
+| Blob header v2 — same commands, new payload bytes | Done |
 
 ### Build flags
 
 ```cmake
-# armgcc/config.cmake (or -DM7_USE_CAAM=1)
-M7_USE_CAAM=0   # 1 = call caam_* for GCM/HMAC
-M7_CAAM_HW=0    # 1 = compile real fsl_caam calls (needs device CAAM_Type)
+# armgcc/config.cmake
+M7_USE_CAAM=1     # route GCM/HMAC/wrap to caam_*
+M7_CAAM_HW=1      # real JR1 + descriptors
+M7_CAAM_TOUCH=1   # first ping brings CAAM up (0 = never MMIO)
 ```
 
-With both at 0, the firmware behaves like Step 01.  
-With `M7_USE_CAAM=1` and `M7_CAAM_HW=0`, GCM/HMAC return crypto errors until HW is linked (wiring check).
+```bash
+./m7_crypto_client /dev/ttyRPMSG30 ping
+# expect: payload=OK-CAAM   (ECB + GCM + HMAC + blob KATs)
 
-## Platform finding (important)
+./m7_crypto_client /dev/ttyRPMSG30 store-aes --hex 00112233445566778899aabbccddeeff
+# expect: blob length 92  (28-byte header + 16 + 48)
+```
 
-MCUXpresso **MIMX8ML8** headers expose CAAM IRQs and RDC IDs, but **do not**
-define `CAAM_Type` / `CAAM_BASE` the way RT1170 does. The NXP `fsl_caam` driver
-expects those symbols.
+## Platform
 
-So Step 02 has two layers:
+| Ring | Address    | Owner                          |
+|------|------------|--------------------------------|
+| JR0  | 0x30901000 | HAB (do not use)               |
+| JR1  | 0x30902000 | **M7** (MID 6, started by ATF) |
+| JR2  | 0x30903000 | OP-TEE                         |
 
-1. **Software architecture** (this commit) — stable switch, same protocol.  
-2. **Silicon bring-up** — add `caam_imx8mp_device.h` (base `0x30900000` per RM),
-   clock/RDC access from M7, link `fsl_caam.c`, set `M7_CAAM_HW=1`.
+Descriptors and I/O live in reserved DDR at `0x80080000`.
 
-## Linux job-ring ownership
+Firmware patches: [linux/atf/](../linux/atf/), [linux/u-boot/](../linux/u-boot/).
 
-Linux `caam`/`jr` nodes normally claim the job rings. M7 must use a ring Linux
-does **not** bind.
+## Done criteria (checked on EVK)
 
-Typical approach on EVK:
-
-1. In the RPMsg DT overlay / `imx8mp-evk-rpmsg.dts`, disable or remove one `jr@…`
-   node reserved for M7 (often JR2 or JR3 — confirm against your kernel DT).
-2. Confirm with `cat /proc/interrupts | grep jr` that the reserved ring stays idle
-   under Linux crypto load.
-3. Point M7 `caam_handle_t.jobRing` at that ring (`kCAAM_JobRing2` / `3`).
-
-Document the chosen ring here when fixed:
-
-| Ring | Owner |
-|------|--------|
-| JR0 | Linux (default) |
-| JR1 | Linux (default) |
-| JR? | **M7 (TBD)** |
-
-## Soft blob vs black blob
-
-Step 01 soft blobs remain the on-wire format until `M7_CAAM_HW` black-blob wrap
-is validated. Then update [PROTOCOL.md](../crypto_rpmsg/doc/PROTOCOL.md) with
-the CAAM blob layout (`keymod || caam_blob`).
-
-## Checklist
-
-- [x] Branch `step/02-caam`
 - [x] Adapter files + `M7_USE_CAAM` switch
-- [ ] `caam_imx8mp_device.h` + link `fsl_caam.c`
-- [ ] CAAM init self-test on EVK
-- [ ] GCM / HMAC parity vs Step 01 vectors
-- [ ] Black blob export/load across M7 restart
-- [ ] Linux JR reserved and documented
-- [ ] Tag `step-02` + GitHub Release
+- [x] Linux overlay / DTB disables CAAM
+- [x] i.MX8MP JR1 driver (not RT `fsl_caam` map)
+- [x] U-Boot `mcu_rdc` CAAM → DID1
+- [x] ATF JR1 MID=6 + JRSTART (`JR1DID=0x80000006`, `JRSTART=0x7`)
+- [x] Ping `OK-CAAM` (ECB + GCM + HMAC KATs)
+- [x] Encrypt/decrypt GCM and HMAC sign on silicon
+- [x] CAAM BLOB wrap/unwrap replaces software wrap (`FAIL-BLOB` if KAT fails)
+- [x] Tag `step-02` + GitHub Release
 
-## Non-negotiables (unchanged)
+## Limits (honest)
 
-1. Do not break `m7_crypto_protocol.h` / `m7_crypto_client`.  
-2. Keep software path buildable (`M7_USE_CAAM=0`).  
-3. Document JR ownership before claiming Step 02 Done.
+- Blob v2 will not unwrap on another chip, or on `M7_USE_CAAM=0` firmware
+- Step-01 v1 soft-blob files will not load on this firmware
+- Keys still sit in M7 RAM after unwrap (not kept as CAAM black keys in-register)
+- M7 cannot start or reassign JR1; ATF must do that (page 0 is invisible from M7)
+- Do not JRCR-reset JR1 from the M7 (clears JRSTART with no recovery)
+- Payload size still limited by RPMsg (~400 bytes plaintext+AAD)
+
+## Next
+
+→ Step 03 — Hardening (IV policy, key lifecycle, demo scripts)
