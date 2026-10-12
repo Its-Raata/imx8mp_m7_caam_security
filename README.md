@@ -15,7 +15,8 @@ roadmap step can swap the crypto engine without rewriting the userspace client.
 | Planned | Step 3 — Hardening (IV policy, key lifecycle, demo scripts) |
 
 Full plan: [docs/ROADMAP.md](docs/ROADMAP.md) ·  
-**Architecture (learn here):** [docs/architecture.md](docs/architecture.md) ·  
+**Architecture:** [docs/architecture.md](docs/architecture.md) ·  
+**Line-by-line (boot → HW CAAM):** [docs/line-by-line-boot-to-caam.md](docs/line-by-line-boot-to-caam.md) ·  
 Protocol: [crypto_rpmsg/doc/PROTOCOL.md](crypto_rpmsg/doc/PROTOCOL.md)
 
 ---

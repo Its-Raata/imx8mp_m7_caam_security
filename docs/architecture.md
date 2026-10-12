@@ -7,6 +7,7 @@
 This document explains **how the pieces fit**, not every register bit.
 Wire formats live in [PROTOCOL.md](../crypto_rpmsg/doc/PROTOCOL.md).
 Milestone notes: [step-01](step-01-software-crypto.md), [step-02](step-02-caam.md).
+**Execution order (main → OK-CAAM):** [line-by-line-boot-to-caam.md](line-by-line-boot-to-caam.md).
 
 ---
 
@@ -231,14 +232,13 @@ docs/step-0x-*.md              milestone checklists
 
 ## 10. Learning checklist (suggested order)
 
-1. Boot flow: U-Boot `bootaux` → Linux attach → `modprobe rpmsg_tty`.
-2. Menu **1 Ping** — proves endpoint + protocol header.
-3. Menu **3 Store AES** then **6 Encrypt** / **7 Decrypt** — key slot + GCM.
-4. Menu **4 / 5** — CAAM blob round-trip across M7 reset (same blob file).
-5. Read `crypto_service.c` `ENCRYPT_GCM` case alongside PROTOCOL.md.
-6. Read `caam_imx8mp_jr.c` enqueue/dequeue; compare to Linux `jr.c` mentally.
-7. Confirm engine via **ping** payload: `OK-CAAM` / `OK-SW` / `FAIL-*`
-   (custom boards often have no usable M7 UART4).
+1. Read [line-by-line-boot-to-caam.md](line-by-line-boot-to-caam.md) with `main.c` open.
+2. Boot flow: U-Boot `bootaux` → Linux attach → `modprobe rpmsg_tty`.
+3. Menu **1 Ping** — expect `OK-CAAM` (or `OK-SW` / `FAIL-*`).
+4. Menu **3 Store AES** then **6 Encrypt** / **7 Decrypt** — key slot + GCM.
+5. Menu **4 / 5** — CAAM blob round-trip across M7 reset (same blob file).
+6. Read `crypto_service.c` `ENCRYPT_GCM` case alongside PROTOCOL.md.
+7. Read `caam_imx8mp_jr.c` enqueue/dequeue; compare to Linux `jr.c` mentally.
 
-When you are ready, we walk these steps one by one with questions — not just
+When you are ready, walk these steps one by one with questions — not just
 commands.
