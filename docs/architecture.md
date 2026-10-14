@@ -7,6 +7,7 @@
 This document explains **how the pieces fit**, not every register bit.
 Wire formats live in [PROTOCOL.md](../crypto_rpmsg/doc/PROTOCOL.md).
 Milestone notes: [step-01](step-01-software-crypto.md), [step-02](step-02-caam.md).
+Build from scratch: [compile.md](compile.md).
 
 ---
 
