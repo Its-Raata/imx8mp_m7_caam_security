@@ -16,6 +16,7 @@ roadmap step can swap the crypto engine without rewriting the userspace client.
 
 Full plan: [docs/ROADMAP.md](docs/ROADMAP.md) ·  
 **Architecture (learn here):** [docs/architecture.md](docs/architecture.md) ·  
+**Compile from scratch:** [docs/compile.md](docs/compile.md) ·  
 Protocol: [crypto_rpmsg/doc/PROTOCOL.md](crypto_rpmsg/doc/PROTOCOL.md)
 
 ---
@@ -54,12 +55,18 @@ Menu: **1** ping · **2** set channel · **3** store AES · **6/7** encrypt/decr
 
 ## Build
 
-MCUXpresso SDK (MIMX8ML8), CMake preset `debug`:
+Toolchain, SDK download, and CMake: **[docs/compile.md](docs/compile.md)**.
 
 ```bash
-export SdkRootDirPath=/path/to/mcuxsdk-aarch64
-cmake --preset debug -S armgcc
-cmake --build armgcc/debug
+export ARMGCC_DIR=/path/to/arm-gnu-toolchain          # contains bin/arm-none-eabi-gcc
+export SdkRootDirPath=/path/to/mcuxsdk-aarch64        # contains core/
+
+cmake -S armgcc -B armgcc/debug -G Ninja \
+  -DCMAKE_BUILD_TYPE=debug \
+  -DCMAKE_TOOLCHAIN_FILE="$SdkRootDirPath/core/tools/cmake_toolchain_files/armgcc.cmake" \
+  -DSdkRootDirPath="$SdkRootDirPath"
+
+cmake --build armgcc/debug --target imx8mp_m7_caam_security.elf
 ```
 
 Output: `armgcc/debug/imx8mp_m7_caam_security.bin`
@@ -73,7 +80,7 @@ main.c, crypto_service.*, sw_crypto.*, m7_crypto_protocol.h   # M7 application
 armgcc/                                                         # CMake / linker
 crypto_rpmsg/linux/                                             # userspace client
 crypto_rpmsg/doc/PROTOCOL.md                                    # wire format
-docs/                                                           # roadmap & milestones
+docs/                                                           # roadmap, architecture, compile guide
 ```
 
 Git tags mark frozen milestones (`step-01`, …) so each stage stays readable on GitHub.
